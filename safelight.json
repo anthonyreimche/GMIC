@@ -1,0 +1,45 @@
+{
+  "id": "gmic",
+  "name": "G'MIC",
+  "version": "1.0.0",
+  "description": "Runs G'MIC's filters and your own G'MIC scripts on photos, from a panel, the Terminal and the safelight command line, through the gmic program you install from gmic.eu. Each result is saved as a new photo beside its original.",
+  "author": "Anthony Reimche",
+  "main": "dist/index.js",
+  "license": "GPL-3.0-or-later",
+  "categories": ["Develop", "Effects"],
+  "keywords": ["g'mic", "gmic", "filters", "effects", "scripts", "artistic"],
+  "repository": "anthonyreimche/GMIC",
+  "minAppVersion": "3.2.6",
+  "permissions": {
+    "programs": true,
+    "network": ["https://gmic.eu"],
+    "reason": "Runs the gmic program you choose, on the photos you choose, to apply G'MIC's filters and scripts. Reads gmic.eu's download page to link the newest G'MIC for Windows."
+  },
+  "commands": [
+    {
+      "name": "gmic",
+      "summary": "Run G'MIC filters and scripts on photos, each result saved beside its photo",
+      "usage": [
+        "gmic <G'MIC words…>",
+        "gmic filters [search]",
+        "gmic filter <name> [Name=value…]",
+        "gmic script <name> [Name=value…]",
+        "gmic scripts",
+        "gmic help [command]",
+        "gmic status",
+        "gmic update"
+      ],
+      "examples": ["gmic blur 3 sharpen 50", "gmic filters sharpen", "gmic filter \"Sharpen [Unsharp Mask]\" radius=2", "gmic script Soft Glow strength=0.4"],
+      "subcommands": [
+        { "name": "filters", "summary": "List G'MIC's filters, or those matching a search" },
+        { "name": "filter", "summary": "Run a filter by name, with Name=value settings" },
+        { "name": "script", "summary": "Run a saved script by name, with Name=value settings" },
+        { "name": "scripts", "summary": "List the saved scripts" },
+        { "name": "run", "summary": "Run G'MIC words, even ones named like a subcommand" },
+        { "name": "help", "summary": "G'MIC's own help for one of its commands" },
+        { "name": "status", "summary": "Which gmic program runs, and its version" },
+        { "name": "update", "summary": "Download G'MIC's latest filter definitions" }
+      ]
+    }
+  ]
+}

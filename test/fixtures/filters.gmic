@@ -1,0 +1,39 @@
+#@gmic
+#
+#  File         : update408.gmic
+#  Description  : Update file for G'MIC commands and filters, for version 4.0.8).
+#
+#@gui <i>About</i>
+#@gui About G'MIC:_none_,_none_
+#@gui :_=note("<center>G'MIC</center>")
+#@gui _<b>Details</b>
+#@gui Sharpen [Unsharp Mask]:fx_unsharp,fx_unsharp(0)
+#@gui :_=note("<span color="#EE5500"><b>Description:</b></span> Classic unsharp mask sharpening. ")
+#@gui :_=separator()
+#@gui :Sharpening Type=choice(1,"Gaussian","Bilateral")
+#@gui :Spatial Radius=float(1.25,0,20)
+#@gui :Iterations=int(1,1,10)
+#@gui :Negative Effect=bool()
+#@gui :Docs=link("https://gmic.eu")
+fx_unsharp :
+  sharpen $2
+#@gui_fr Netteté [Masque Flou]:fx_unsharp,fx_unsharp(0)
+#@gui_fr :Type=choice(1,"Gaussien","Bilatéral")
+#@gui _<b>Artistic</b>
+#@gui Caption &amp; Frame:fx_caption,fx_caption_preview
+#@gui :Text=text("Hello \"world\"")
+#@gui :Colour=color(255,128,0,255)
+#@gui :Position=point(50,90)
+#@gui :Randomize=button()
+#@gui :Font=file("")
+#@gui :Odd=mystery(1)
+#@gui :Mode=~choice("A","B")
+#@gui <i>Frames</i>
+#@gui Old Frame:fx_old_frame
+#@gui _
+#@gui _
+#@gui __<i>Corvo</i>
+#@gui Old Look : fx_old_look, fx_old_look_preview(1)
+#@gui : Strength = _float(0.5,0,1)
+#@gui _<b>Details</b>
+#@gui Sharpen [Texture]:fx_sharpen_texture
