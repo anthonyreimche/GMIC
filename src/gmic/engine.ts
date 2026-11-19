@@ -3,21 +3,22 @@
 // person chose for this extension (the first one kept).
 
 import { parseFilterFile, type Catalogue } from "./catalogue";
-import { CATALOGUE, catalogueFile, commandFile, runArgs, type Job } from "./script";
+import { decodeCimg, encodeCimg, type Planar } from "./cimg";
+import { CATALOGUE, catalogueFile, commandFile, runArgs, stackArgs, stackFile, type Job } from "./script";
 import type { KeptProgram, ProgramRunOptions, ProgramRunResult, ProgramsAPI } from "../safelight";
 
 export type Programs = Pick<ProgramsAPI, "list" | "run">;
 
 export class NotSetUpError extends Error {
   constructor() {
-    super("G'MIC isn't set up. Open the G'MIC panel and choose Find G'MIC.");
+    super("G'MIC isn't set up. Set it up in Preferences ▸ G'MIC, or from the G'MIC store.");
     this.name = "NotSetUpError";
   }
 }
 
 export class NeedsUpdateError extends Error {
   constructor() {
-    super("G'MIC has no filter list yet: it comes with G'MIC's update. Run gmic update, or choose Download filters in the G'MIC panel.");
+    super("G'MIC has no filter list yet: it comes with G'MIC's update. Run gmic update, or choose Download filters in the G'MIC store.");
     this.name = "NeedsUpdateError";
   }
 }
@@ -27,10 +28,18 @@ export interface RunOptions {
   onOutput?: ProgramRunOptions["onOutput"];
 }
 
+export interface StackRunOptions extends RunOptions {
+  /** Variables set before the first step, as G'MIC-Qt sets them. */
+  vars?: Readonly<Record<string, string | number>>;
+}
+
 export interface GmicEngine {
   program(): Promise<KeptProgram | null>;
   /** Runs `job` on a PNG and returns the PNGs it leaves, in order. */
   run(input: Uint8Array, job: Job, options?: RunOptions): Promise<Uint8Array[]>;
+  /** Runs `jobs` in turn on a float image on G'MIC's 0–255 scale and
+   *  returns the image the last leaves. */
+  runStack(input: Planar, jobs: readonly Job[], options?: StackRunOptions): Promise<Planar>;
   catalogue(options?: RunOptions): Promise<Catalogue>;
   /** Downloads G'MIC's latest filter definitions, then reads the list again. */
   update(options?: RunOptions): Promise<Catalogue>;
@@ -137,6 +146,19 @@ export function createEngine(programs: Programs): GmicEngine {
       const out = images(result.files);
       if (out.length === 0) throw new Error("G'MIC left no image to save.");
       return out;
+    },
+    async runStack(input, jobs, options = {}) {
+      const result = await exec(stackArgs(), {
+        files: { "input.cimg": encodeCimg(input), "job.gmic": utf8(stackFile(jobs, options.vars)) },
+        outputs: ["out.cimg"],
+        timeoutMs: RUN_TIMEOUT_MS,
+        signal: options.signal,
+        onOutput: options.onOutput,
+      });
+      const file = result.files["out.cimg"];
+      const [first] = file ? decodeCimg(file) : [];
+      if (!first) throw new Error("G'MIC left no image.");
+      return first;
     },
     catalogue,
     async update(options = {}) {

@@ -21,6 +21,7 @@ function fakeEngine(overrides: Partial<GmicEngine> = {}): GmicEngine & { jobs: u
       jobs.push(job);
       return [new Uint8Array([1])];
     },
+    runStack: async (input) => input,
     catalogue: async () => catalogue,
     update: async () => catalogue,
     version: async () => "4.0.7",

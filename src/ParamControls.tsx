@@ -14,7 +14,7 @@ function parseHex(text: string): number[] | null {
   return m ? m[1].match(/../g)!.map((h) => parseInt(h, 16)) : null;
 }
 
-function ColourControl(props: { name: string; value: number[]; onChange(v: number[]): void }) {
+function ColourControl(props: { name: string; value: number[]; onChange(v: number[]): void; onCommit(): void }) {
   const ui = api.ui;
   const [text, setText] = React.useState(hex(props.value));
   React.useEffect(() => setText(hex(props.value)), [props.value]);
@@ -25,6 +25,7 @@ function ColourControl(props: { name: string; value: number[]; onChange(v: numbe
         <ui.TextInput
           value={text}
           aria-label={props.name}
+          onBlur={props.onCommit}
           onChange={(t) => {
             setText(t);
             const rgb = parseHex(t);
@@ -38,6 +39,7 @@ function ColourControl(props: { name: string; value: number[]; onChange(v: numbe
             max={255}
             width="4.5em"
             aria-label={`${props.name} opacity`}
+            onBlur={props.onCommit}
             onChange={(a) => props.onChange([...props.value.slice(0, 3), Math.max(0, Math.min(255, a))])}
           />
         )}
@@ -48,9 +50,20 @@ function ColourControl(props: { name: string; value: number[]; onChange(v: numbe
 
 const noteStyle = { margin: 0, fontSize: 11, opacity: 0.7, whiteSpace: "pre-wrap" } as const;
 
-export function ParamControls(props: { params: readonly Param[]; values: ParamValues; onChange(name: string, value: ParamValue): void }) {
+/** Each change goes to `onChange` as it happens; `onCommit` ends a gesture
+ *  (a slider's release, a field's blur, a click) as one undo step. */
+export function ParamControls(props: {
+  params: readonly Param[];
+  values: ParamValues;
+  onChange(name: string, value: ParamValue): void;
+  onCommit(name: string): void;
+}) {
   const ui = api.ui;
   const { Slider } = api.components;
+  const now = (name: string, value: ParamValue) => {
+    props.onChange(name, value);
+    props.onCommit(name);
+  };
   return (
     <ui.Stack gap={6}>
       {props.params.map((p, i) => {
@@ -69,12 +82,13 @@ export function ParamControls(props: { params: readonly Param[]; values: ParamVa
                 step={step}
                 defaultValue={p.default}
                 onChange={(v) => props.onChange(p.name, p.kind === "int" ? Math.round(v) : v)}
+                onCommit={() => props.onCommit(p.name)}
               />
             );
           }
           case "bool":
             return (
-              <ui.Toggle key={i} label={p.name} checked={props.values[p.name] === true} onChange={(v) => props.onChange(p.name, v)} />
+              <ui.Toggle key={i} label={p.name} checked={props.values[p.name] === true} onChange={(v) => now(p.name, v)} />
             );
           case "choice":
             return (
@@ -83,14 +97,20 @@ export function ParamControls(props: { params: readonly Param[]; values: ParamVa
                   ariaLabel={p.name}
                   value={String(props.values[p.name] ?? p.default)}
                   options={p.choices.map((label, n) => ({ value: String(n), label }))}
-                  onChange={(v) => props.onChange(p.name, Number(v))}
+                  onChange={(v) => now(p.name, Number(v))}
                 />
               </ui.Field>
             );
           case "color": {
             const value = props.values[p.name];
             return (
-              <ColourControl key={i} name={p.name} value={Array.isArray(value) ? value : p.default} onChange={(v) => props.onChange(p.name, v)} />
+              <ColourControl
+                key={i}
+                name={p.name}
+                value={Array.isArray(value) ? value : p.default}
+                onChange={(v) => props.onChange(p.name, v)}
+                onCommit={() => props.onCommit(p.name)}
+              />
             );
           }
           case "point": {
@@ -99,8 +119,8 @@ export function ParamControls(props: { params: readonly Param[]; values: ParamVa
             return (
               <ui.Field key={i} label={`${p.name} (%)`}>
                 <ui.Row gap={6}>
-                  <ui.NumberInput value={x} width="5em" aria-label={`${p.name} x`} onChange={(v) => props.onChange(p.name, [v, y])} />
-                  <ui.NumberInput value={y} width="5em" aria-label={`${p.name} y`} onChange={(v) => props.onChange(p.name, [x, v])} />
+                  <ui.NumberInput value={x} width="5em" aria-label={`${p.name} x`} onBlur={() => props.onCommit(p.name)} onChange={(v) => props.onChange(p.name, [v, y])} />
+                  <ui.NumberInput value={y} width="5em" aria-label={`${p.name} y`} onBlur={() => props.onCommit(p.name)} onChange={(v) => props.onChange(p.name, [x, v])} />
                 </ui.Row>
               </ui.Field>
             );
@@ -108,7 +128,12 @@ export function ParamControls(props: { params: readonly Param[]; values: ParamVa
           case "text":
             return (
               <ui.Field key={i} label={p.name}>
-                <ui.TextInput aria-label={p.name} value={String(props.values[p.name] ?? p.default)} onChange={(v) => props.onChange(p.name, v)} />
+                <ui.TextInput
+                  aria-label={p.name}
+                  value={String(props.values[p.name] ?? p.default)}
+                  onBlur={() => props.onCommit(p.name)}
+                  onChange={(v) => props.onChange(p.name, v)}
+                />
               </ui.Field>
             );
           case "note":

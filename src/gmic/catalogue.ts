@@ -7,11 +7,31 @@
 import { guiParams, joinContinuations, plain } from "./gui";
 import type { Param } from "./params";
 
+/** Where a filter's preview matches its result, from the flag after its
+ *  preview command as G'MIC-Qt reads it: "any" zoom; "actual", at 100 % (its
+ *  settings are in pixels); "whole", with the whole photo in view. */
+export type PreviewScale = "any" | "actual" | "whole";
+
 export interface Filter {
   name: string;
   category: string;
   command: string;
   params: Param[];
+  previewScale: PreviewScale;
+  /** The command G'MIC-Qt previews with, or null for none. Left out: the
+   *  filter's own command. */
+  preview?: string | null;
+  /** The command opens G'MIC's own window to draw in (Curves, Warp …); its
+   *  preview command replays what was drawn without it. */
+  interactive?: boolean;
+}
+
+/** `preview(factor)` with no `+` or `*` after it is true at one zoom only:
+ *  factor 0 at 100 %, any other with the whole image shown. */
+export function previewScaleOf(previewCommand: string | undefined): PreviewScale {
+  const flag = /\(\s*([\d.]+)\s*\)\s*([+*]?)\s*$/.exec((previewCommand ?? "").split(":")[0]);
+  if (!flag || flag[2]) return "any";
+  return Number(flag[1]) === 0 ? "actual" : "whole";
 }
 
 export interface Category {
@@ -28,22 +48,39 @@ interface Pending {
   name: string;
   category: string;
   command: string;
+  preview: string | null;
+  previewScale: PreviewScale;
   lines: string[];
+}
+
+const NO_PREVIEW = new Set(["", "_none_", "gui_no_preview"]);
+
+/** The preview command's name, without its zoom flag or input mode. */
+function previewName(raw: string | undefined, command: string): string | null {
+  if (raw === undefined) return command;
+  const name = raw.split(":")[0].replace(/\(.*$/, "").trim();
+  return NO_PREVIEW.has(name) ? null : name;
+}
+
+/** Commands whose definition opens G'MIC's own window first. */
+function interactiveCommands(text: string): Set<string> {
+  return new Set([...text.matchAll(/^([A-Za-z_][A-Za-z0-9_]*)\s*:[^\n]*\bgui_check_x11_gdi32\s+0\b/gm)].map((m) => m[1]));
 }
 
 export function parseFilterFile(text: string): Catalogue {
   const version = /for version (\d+(?:\.\d+)*)/.exec(text.slice(0, 2000))?.[1] ?? "";
   const byCategory = new Map<string, Filter[]>();
   const folders: string[] = [];
+  const interactive = interactiveCommands(text);
   let current: Pending | null = null;
 
   const finish = () => {
     if (!current) return;
-    const { name, category, command, lines } = current;
+    const { name, category, command, preview, previewScale, lines } = current;
     current = null;
     if (!command || command === "_none_" || !category) return;
     const list = byCategory.get(category) ?? [];
-    list.push({ name, category, command, params: guiParams(lines) });
+    list.push({ name, category, command, params: guiParams(lines), previewScale, preview, interactive: interactive.has(command) });
     byCategory.set(category, list);
   };
 
@@ -64,8 +101,9 @@ export function parseFilterFile(text: string): Catalogue {
       if (name) folders.push(name);
       continue;
     }
-    const command = body.slice(colon + 1).split(",")[0].split(":")[0].trim();
-    current = { name: plain(body.slice(0, colon)), category: folders.join(" › "), command, lines: [] };
+    const commands = body.slice(colon + 1).split(",");
+    const command = commands[0].split(":")[0].trim();
+    current = { name: plain(body.slice(0, colon)), category: folders.join(" › "), command, preview: previewName(commands[1], command), previewScale: previewScaleOf(commands[1]), lines: [] };
   }
   finish();
 
@@ -83,6 +121,11 @@ export function findFilter(catalogue: Catalogue, nameOrCommand: string): Filter 
   return (
     filters.find((f) => f.name.toLowerCase() === key) ?? filters.find((f) => f.command.toLowerCase() === key) ?? null
   );
+}
+
+/** The filter a command runs. */
+export function filterByCommand(catalogue: Catalogue, command: string): Filter | null {
+  return allFilters(catalogue).find((f) => f.command === command) ?? null;
 }
 
 /** Filters whose name, category or command hold every word of `query`. */

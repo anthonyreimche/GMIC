@@ -12,7 +12,8 @@ import { describe, expect, it } from "vitest";
 import { findFilter } from "../src/gmic/catalogue";
 import { NeedsUpdateError, createEngine, pngBitDepth, type Programs } from "../src/gmic/engine";
 import { defaultsOf } from "../src/gmic/params";
-import { filterJob, scriptJob } from "../src/jobs";
+import { filterJob, scriptJob, stepJobs } from "../src/jobs";
+import { gmicVars } from "../src/gmic/script";
 import type { ProgramRunOptions, ProgramRunResult } from "../src/safelight";
 
 const EXE = process.env.GMIC_EXE ?? "";
@@ -127,5 +128,43 @@ describe.skipIf(!EXE)("a real gmic", { timeout: 300_000 }, () => {
 
   it("reads a command's help", async () => {
     expect((await engine.help("blur")).toLowerCase()).toContain("blur");
+  });
+
+  it("runs a stack on float pixels: a filter with G'MIC-Qt's variables, then a script with its own main", async () => {
+    const width = 64;
+    const height = 32;
+    const data = new Float32Array(width * height * 3);
+    for (let i = 0; i < data.length; i++) data[i] = (i * 37) % 256;
+    const catalogue = await engine.catalogue();
+    const unsharp = findFilter(catalogue, "fx_unsharp")!;
+    const jobs = [
+      filterJob(unsharp, defaultsOf(unsharp.params)),
+      { kind: "script" as const, source: ["main :", "  half", "half :", "  mul 0.5"].join("\n"), args: "" },
+    ];
+    const out = await engine.runStack({ width, height, channels: 3, data }, jobs, { vars: gmicVars(width, height, true) });
+    expect([out.width, out.height, out.channels]).toEqual([width, height, 3]);
+    const mean = out.data.reduce((a, b) => a + b, 0) / out.data.length;
+    const inMean = data.reduce((a, b) => a + b, 0) / data.length;
+    expect(mean).toBeGreaterThan(inMean * 0.35);
+    expect(mean).toBeLessThan(inMean * 0.65);
+    expect(Math.max(...out.data)).toBeLessThanOrEqual(255);
+  });
+
+  it("runs an interactive filter (Curves) through its editor job, opening no window", async () => {
+    const catalogue = await engine.catalogue();
+    const curves = catalogue.categories.flatMap((c) => c.filters).find((f) => f.command === "fx_curves_interactive")!;
+    expect(curves.interactive).toBe(true);
+    const interactive = catalogue.categories.flatMap((c) => c.filters).filter((f) => f.interactive).map((f) => f.command).sort();
+    expect(interactive).toEqual(["fx_colorize_interactive", "fx_curves_interactive", "fx_extract_foreground", "fx_mask_color", "fx_morph_interactive", "fx_warp_interactive"]);
+    const data = new Float32Array(16 * 16 * 3).fill(100);
+    const [job] = stepJobs([{ id: "c", on: true, kind: "filter", name: curves.name, command: curves.command, values: {} }], catalogue);
+    const out = await engine.runStack({ width: 16, height: 16, channels: 3, data }, [job], { vars: gmicVars(16, 16, true) });
+    expect([out.width, out.height]).toEqual([16, 16]);
+  });
+
+  it("hands back a result G'MIC resized", async () => {
+    const data = new Float32Array(8 * 8 * 3).fill(100);
+    const out = await engine.runStack({ width: 8, height: 8, channels: 3, data }, [{ kind: "line", line: "resize 12,12" }]);
+    expect([out.width, out.height]).toEqual([12, 12]);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CATALOGUE, ENTRY, RUN, catalogueFile, commandFile, scriptParams, type Job } from "../src/gmic/script";
+import { CATALOGUE, ENTRY, RUN, STACK_RUN, catalogueFile, commandFile, scriptParams, stackArgs, stackFile, type Job } from "../src/gmic/script";
 
 describe("commandFile", () => {
   it("runs a pipeline between the 0–255 scaling and the 16-bit write-back", () => {
@@ -40,6 +40,12 @@ describe("commandFile", () => {
     const file = commandFile({ kind: "script", source, args: "1.2" });
     expect(file).toContain(`  main 1.2\n`);
     expect(file.endsWith(`${source}\n`)).toBe(true);
+  });
+
+  it("writes scripts with Windows line endings as G'MIC reads them", () => {
+    const file = stackFile([{ kind: "script", source: "main :\r\n  blur 1\r\n", args: "" }]);
+    expect(file).not.toContain("\r");
+    expect(file).toContain("_sl_main_1 :\n  blur 1\n");
   });
 
   it("refuses a script that defines commands but no main", () => {
@@ -93,5 +99,57 @@ describe("catalogueFile", () => {
     expect(file.startsWith(`${CATALOGUE} :\n`)).toBe(true);
     expect(file).toContain("i cimgz:${_path_rc}update$_version.gmic");
     expect(file).toContain("o[-1] raw:filters.gmic,uint8");
+  });
+});
+
+describe("stackFile", () => {
+  it("runs each step in order, keeping one image between steps, clipped to 0-255 at the end", () => {
+    const jobs: Job[] = [
+      { kind: "line", line: "fx_unsharp 1,1.25" },
+      { kind: "script", source: "blur $1", args: "2" },
+    ];
+    expect(stackFile(jobs)).toBe(
+      [
+        `${STACK_RUN} :`,
+        "  _sl_step_1",
+        "  k[0]",
+        "  _sl_step_2 2",
+        "  k[0]",
+        "  cut 0,255",
+        "",
+        "_sl_step_1 :",
+        "  fx_unsharp 1,1.25",
+        "",
+        "_sl_step_2 :",
+        "  blur $1",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("gives each script that defines commands its own main", () => {
+    const a = "main :\n  tone_a $1\ntone_a :\n  mul $1";
+    const b = "main:\n  blur 1";
+    const file = stackFile([
+      { kind: "script", source: a, args: "1.5" },
+      { kind: "script", source: b, args: "" },
+    ]);
+    expect(file).toContain("  _sl_main_1 1.5\n  k[0]\n  _sl_main_2\n  k[0]\n");
+    expect(file).toContain("_sl_main_1 :\n  tone_a $1\ntone_a :\n  mul $1\n");
+    expect(file).toContain("_sl_main_2:\n  blur 1\n");
+    expect(file).not.toMatch(/^main\s*:/m);
+  });
+
+  it("refuses a script that defines commands but no main", () => {
+    expect(() => stackFile([{ kind: "script", source: "tone :\n  mul 2", args: "" }])).toThrow(/main/);
+  });
+
+  it("sets the given variables before the first step", () => {
+    const file = stackFile([{ kind: "line", line: "blur 1" }], { _host: "safelight", _preview_width: 640 });
+    expect(file.startsWith(`${STACK_RUN} :\n  _host=safelight\n  _preview_width=640\n  _sl_step_1\n`)).toBe(true);
+  });
+
+  it("reads input.cimg and writes the result as floats", () => {
+    expect(stackArgs()).toEqual(["-v", "0", "-m", "job.gmic", "input.cimg", STACK_RUN, "-o", "out.cimg,float32"]);
   });
 });

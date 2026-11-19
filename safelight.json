@@ -1,8 +1,8 @@
 {
   "id": "gmic",
   "name": "G'MIC",
-  "version": "1.0.0",
-  "description": "Runs G'MIC's filters and your own G'MIC scripts on photos, from a panel, the Terminal and the safelight command line, through the gmic program you install from gmic.eu. Each result is saved as a new photo beside its original.",
+  "version": "2.0.0",
+  "description": "G'MIC's filters and your own G'MIC scripts as Develop panels: install them from the G'MIC store, preview them live on the photo, and every export applies them. Also runs G'MIC from the Terminal and the safelight command line. Uses the gmic program you install from gmic.eu.",
   "author": "Anthony Reimche",
   "main": "dist/index.js",
   "license": "GPL-3.0-or-later",
@@ -13,7 +13,7 @@
   "permissions": {
     "programs": true,
     "network": ["https://gmic.eu"],
-    "reason": "Runs the gmic program you choose, on the photos you choose, to apply G'MIC's filters and scripts. Reads gmic.eu's download page to link the newest G'MIC for Windows."
+    "reason": "Runs the gmic program you choose on your photos, to preview G'MIC's filters and scripts in Develop and apply them when you export. Reads gmic.eu's download page to link the newest G'MIC for Windows."
   },
   "commands": [
     {

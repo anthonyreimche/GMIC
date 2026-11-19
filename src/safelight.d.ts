@@ -231,10 +231,21 @@ export interface PanelContribution {
      *  user would expect the eye to hide, including another tool's that is
      *  meaningless without yours (Transform lists the crop, which is authored in
      *  the transformed frame). The extension's stage params stay as they are;
-     *  a panel without `owns` previews off by dropping them all. Keys that
-     *  aren't develop params are dropped at registration, with a warning. Older
-     *  builds ignore it. */
+     *  a panel without `owns` or `ownsBag` previews off by dropping them all.
+     *  Keys that aren't develop params are dropped at registration, with a
+     *  warning. Older builds ignore it. */
     owns?: readonly (keyof DevelopParams)[];
+    /** The param-bag keys this panel's effect lives in: an exact qualified key
+     *  ("my-ext.f.abc"), or a prefix ending in "." ("my-ext.f.abc.") for every
+     *  key under it. While the panel's preview-off eye is held, Develop draws
+     *  without those keys, in the photo's bag and in your view values alike, and
+     *  leaves your extension's other stage params as they are; with `owns` too,
+     *  both are previewed off. For an extension whose stages serve several
+     *  panels. An empty list says the panel has no effect of its own (a store or
+     *  a list beside your stages): it gets no eye, and holding nothing off. Entries
+     *  that aren't strings are dropped at registration, with a warning. Needs
+     *  Safelight 3.2.6. */
+    ownsBag?: readonly string[];
     /** A control rendered in the dock header to the left of the title (e.g. the
      *  per-panel bypass eye). Must handle its own clicks; the header swallows
      *  pointerdowns on buttons so it won't start a drag. */
@@ -422,6 +433,38 @@ export interface PipelineContribution {
      *  its uniforms' keys, and the params are values only. Needs Safelight
      *  3.1.0, like `params`. */
     derive?: TransformDerive;
+    /** GPU passes over the image as it enters the transform, for a transform
+     *  that needs a pixel's neighbourhood (a local-contrast or detail term).
+     *  Needs `glsl`, and Safelight 3.2.6: older builds don't declare the
+     *  result, so the transform fails to compile there and renders with the
+     *  built-in. Set the manifest's `minAppVersion` to "3.2.6". */
+    prepass?: TransformPrepass;
+}
+
+/** A display transform's pre-pass (PipelineContribution.prepass). The passes
+ *  run as a stage's do (StagePass), only while the photo renders with this
+ *  transform. Their first draw reads the image as the transform's `lin` holds
+ *  it: linear Rec.709, after every edit and stage ahead of the transform, but
+ *  before the core shoulder's path to white on a transform that doesn't set
+ *  `skipToneShoulder`. Their last draw's rgb reaches `glsl` and `helpers` as
+ *  the global `vec3 slTransformPass`, sampled at the pixel pipelineToDisplay
+ *  is drawing. While the passes don't run (dormantWhen holds) it holds no
+ *  result: read it only under the params that make them run. A pass uniform binds the
+ *  bag's "{transformId}.{key}", so a pass declaring a param's key reads that
+ *  param's value; derived uniforms don't reach the passes. A transform with a
+ *  pre-pass must not declare a param or derived key named `stageResult` or
+ *  `stageResultLayer`, which the result's sampler is named with. A pass that
+ *  fails to build, or that the GPU crash guard blames for a driver reset,
+ *  takes the photo to the built-in transform, as a transform whose own `glsl`
+ *  fails does. */
+export interface TransformPrepass {
+    passes: StagePass[];
+    /** When the passes change nothing, as ProcessingStageContribution.dormantWhen:
+     *  pass uniform key → value. While every listed uniform holds its value, no
+     *  pass draws, and the live view leaves them out of a process version 2 or
+     *  later photo's program. Read slTransformPass only when the passes ran:
+     *  gate it on the same params. */
+    dormantWhen?: Readonly<Record<string, UniformValue>>;
 }
 
 export interface TransformDerive {
@@ -1085,6 +1128,17 @@ export interface ProcessingStageContribution {
      *  for any stage that smooths or removes detail. Needs Safelight 3.2.4;
      *  older builds ignore it. */
     keepsDetail?: boolean;
+    /** The stage needs the decode as the sensor recorded it, as a film negative
+     *  inversion does to read the film's densities. While the stage is at work
+     *  on a photo (its `dormantWhen` doesn't hold), the photo renders without
+     *  the baseline tone, the camera baseline after it (the refit, the maker's
+     *  exposure offset and the camera match's Shadows lift) and channel
+     *  reconstruction: in Develop, thumbnails, exports and captures alike, and
+     *  in every stage's passes. At rest, nothing changes. Needs `dormantWhen`
+     *  (registration refuses the stage without it). Only RAW photos carry a
+     *  baseline; other photos render as before. Needs Safelight 3.2.6; older
+     *  builds ignore it. */
+    plainSource?: boolean;
     /** How this stage's params behave in presets. "global" (the default) is a
      *  look that applies to any photo — e.g. a film sim or a curve — so it is
      *  offered when saving a preset and pre-selected when changed. "per-image" is
@@ -1277,6 +1331,38 @@ export interface SlotContribution {
     order?: number;
 }
 
+/** An icon button in the main window's top bar, beside the built-in icons, e.g.
+ *  to open an extension's own store. Re-registering the same id replaces it;
+ *  disabling the extension removes it. Needs Safelight 3.2.6. */
+export interface TopBarButtonContribution {
+    /** Globally unique, e.g. "my-ext.store". */
+    id: string;
+    /** Tooltip and accessible name. */
+    label: string;
+    /** Inline `<svg…>` markup, drawn as a mask in the top bar's icon colour: its
+     *  shapes give the icon, their own colours are ignored. Anything else (a URL)
+     *  is refused at registration, with a warning. */
+    svg: string;
+    /** Called when the button is clicked. A throw is logged and the bar carries on. */
+    onClick(): void;
+    /** Sort position among extension buttons (lower = further left). Default 100. */
+    order?: number;
+}
+
+/** A window-style pop-up an extension opens over the app, drawn like the
+ *  Extensions window: a dimmed backdrop, a titlebar to drag it by, and a close
+ *  button; Esc and a click outside close it. Needs Safelight 3.2.6. */
+export interface WindowContribution {
+    /** Globally unique, e.g. "gmic.store". */
+    id: string;
+    /** The titlebar's text. */
+    title: string;
+    /** The window's content. It fills the window below the titlebar and manages its own scrolling. */
+    component: ComponentType;
+    /** Offer Maximize/Restore beside the close button, as the Extensions window does. */
+    maximizable?: boolean;
+}
+
 /** Identity of the panel a global header accessory is decorating. */
 export interface PanelHeaderContext {
     panelId: string;
@@ -1286,7 +1372,8 @@ export interface PanelHeaderContext {
     /** The extension that registered the panel ("host"/"core.*" for built-ins). */
     extensionId: string;
     /** True when the develop renderer can preview this panel's effect off — i.e.
-     *  it governs core adjustments or its extension owns a GPU stage. False for
+     *  it governs core adjustments, declares `ownsBag`, or its extension owns a
+     *  GPU stage. False for
      *  panels with no image effect (Histogram, Edit, Presets), so a preview eye can
      *  hide itself there. */
     previewable: boolean;
@@ -1344,6 +1431,12 @@ export interface SafelightAPI {
     /** The app's React instance — plugins must use this, not their own copy. */
     react: typeof import("react");
     registerPanel(c: PanelContribution): void;
+    /** Remove a panel this extension registered (by id), e.g. one per installed
+     *  filter when that filter is uninstalled. It goes the way a disabled
+     *  extension's panel does: saved layouts keep its place, so registering it
+     *  again puts it back there, and a held preview-off eye on it lets go.
+     *  Another extension's id is refused with a warning. Needs Safelight 3.2.6. */
+    unregisterPanel(id: string): void;
     registerTheme(c: ThemeContribution): void;
     registerLayout(c: LayoutContribution): void;
     /** Register a top-level module (a tab beside Library and Develop). */
@@ -1442,6 +1535,32 @@ export interface SafelightAPI {
     registerStylesheet(c: StylesheetContribution): void;
     /** Remove a stylesheet this extension registered (by id). */
     unregisterStylesheet(id: string): void;
+    /** Add an icon button to the main window's top bar, beside the built-in
+     *  icons. Re-registering the same id replaces it. Needs Safelight 3.2.6. */
+    registerTopBarButton(c: TopBarButtonContribution): void;
+    /** Remove a top-bar button this extension registered (by id). Another
+     *  extension's id is refused with a warning. Needs Safelight 3.2.6. */
+    unregisterTopBarButton(id: string): void;
+    /** Register a window-style pop-up, opened with `windows.open`. Re-registering
+     *  the same id replaces it. Needs Safelight 3.2.6. */
+    registerWindow(c: WindowContribution): void;
+    /** Remove a window this extension registered (by id), closing it if open.
+     *  Another extension's id is refused with a warning. Needs Safelight 3.2.6. */
+    unregisterWindow(id: string): void;
+    /** Open and close this extension's windows (registerWindow). One extension
+     *  window is open at a time: opening one closes any other. Each window
+     *  remembers Maximize for the session. Needs Safelight 3.2.6. */
+    windows: {
+        /** Open a window this extension registered. Another extension's id, or one
+         *  nobody registered, is refused with a warning. */
+        open(id: string): void;
+        close(id: string): void;
+        toggle(id: string): void;
+        /** Whether window `id` is open now. Non-reactive. */
+        isOpen(id: string): boolean;
+        /** React hook: whether window `id` is open, re-rendering when that changes. */
+        useOpen(id: string): boolean;
+    };
     /** Persisted per-extension key/value settings. */
     settings: {
         get<T>(key: string, fallback: T): T;
@@ -1708,7 +1827,10 @@ export interface SafelightAPI {
          *  always on version 1, and on version 2 and later unless the photo's
          *  display transform sets `skipToneShoulder`; elsewhere it is unclamped.
          *  Needs a Safelight build with the scene point; older builds don't know
-         *  it. The frame is converted into `space`, default `{ encoding:
+         *  it. "decode" is the linear colour the decode and noise-reduction
+         *  stages leave, ahead of the built-in noise reduction, white balance and
+         *  every later tool: what a film negative inversion reads (Safelight
+         *  3.2.6). The frame is converted into `space`, default `{ encoding:
          *  "linear", primaries: "rec709" }`, on the GPU, pixel by pixel before
          *  any averaging. It is always a measurement: sRGB, unproofed, without
          *  the view's overlays. As with captureFrame, neither the params nor
@@ -2636,15 +2758,23 @@ export interface DevelopState {
      *  outside `history` or not a whole number, or while `editError` is set.
      *  Safelight 3.2.5 and later. */
     goToHistory: (index: number) => void;
+    /** Put the open photo's edit back to `edit` exactly, as one undoable step
+     *  named `label`: its settings, the process version it was made at and only
+     *  the extension values it holds. Settings an older edit lacks take their
+     *  defaults. Does nothing with no photo open, while `editError` is set, or
+     *  when the photo already shows `edit`. Safelight 3.2.6 and later. */
+    restoreEdit: (edit: Pick<EditSnapshot, "params" | "paramBag">, label: string) => Promise<void>;
     reset: () => Promise<void>;
     /** Move the open photo from the older processing to the current one, as one
      *  undoable step that keeps every other setting. */
     updateProcessing: () => Promise<void>;
     canUndo: () => boolean;
     canRedo: () => boolean;
-    /** Per-panel preview-off, keyed by panel id: the renderer leaves a bypassed
-     *  panel's contribution out without touching the edit. Never persisted. */
-    bypassedPanels: Record<string, boolean>;
+    /** Panels whose preview-off eye is held now, by panel id: the live view
+     *  leaves a held panel's contribution out without touching the edit. Read it
+     *  to leave a held-off effect out of a preview you render yourself; change it
+     *  only through setPanelBypass. Never persisted. */
+    readonly bypassedPanels: Readonly<Record<string, boolean>>;
     setPanelBypass: (panelId: string, on: boolean) => void;
     togglePanelBypass: (panelId: string) => void;
     showClipping: ClippingMask;
@@ -5026,6 +5156,14 @@ export interface RegisteredModule extends ModuleContribution {
     extensionId: string;
 }
 
+export interface RegisteredTopBarButton extends TopBarButtonContribution {
+    extensionId: string;
+}
+
+export interface RegisteredWindow extends WindowContribution {
+    extensionId: string;
+}
+
 /** A console command as the registry holds it, keyed by its name (`id`). */
 export interface RegisteredCommandEntry extends CommandContribution {
     id: string;
@@ -5063,6 +5201,12 @@ export interface RegistryState {
     modules: Record<string, RegisteredModule>;
     /** Keyed by command name. Console commands (api.commands). */
     commands: Record<string, RegisteredCommandEntry>;
+    /** Keyed by contribution id. Icon buttons in the main window's top bar.
+     *  Needs Safelight 3.2.6. */
+    topBarButtons: Record<string, RegisteredTopBarButton>;
+    /** Keyed by contribution id. Window-style pop-ups (api.registerWindow).
+     *  Needs Safelight 3.2.6. */
+    windows: Record<string, RegisteredWindow>;
 }
 
 /** A stage uniform another extension contributed, as api.params lists it. */
@@ -5226,8 +5370,10 @@ export interface CanvasTool {
 /** "pre-output": the signed colour every stage has finished with, as the
  *  output stage receives it. "output": what the output stage makes of it in
  *  sRGB, in [0, 1]. "scene": the scene-linear colour the display transform
- *  receives, signed, before any display tool. */
-export type CapturePoint = "pre-output" | "output" | "scene";
+ *  receives, signed, before any display tool. "decode": the linear colour
+ *  the decode and noise-reduction stages leave, ahead of the built-in noise
+ *  reduction, white balance and every later tool (Safelight 3.2.6). */
+export type CapturePoint = "pre-output" | "output" | "scene" | "decode";
 
 export interface FloatCaptureOptions {
     /** Default linear Rec.709. */

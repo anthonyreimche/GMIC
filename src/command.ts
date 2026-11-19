@@ -117,7 +117,7 @@ export function gmicCommand(deps: CommandDeps): CommandContribution {
         }
         case "scripts": {
           const scripts = deps.scripts();
-          if (scripts.length === 0) ctx.info("No saved scripts. Write one in the G'MIC panel's Scripts tab.");
+          if (scripts.length === 0) ctx.info("No scripts yet. Write one in the G'MIC store's Scripts tab.");
           for (const s of scripts) {
             const names = scriptParams(s.source).filter(isSettable).map((p) => p.name);
             ctx.print(names.length > 0 ? `${s.name}   ${names.join(", ")}` : s.name);

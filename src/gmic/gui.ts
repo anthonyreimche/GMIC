@@ -81,7 +81,9 @@ function colour(args: string[]): number[] {
   return values.length >= 3 ? values.slice(0, 4) : [0, 0, 0];
 }
 
-function toParam(name: string, type: string, args: string[], pos: number): { param: Param; slots: number } | null {
+const unquoted = (s: string) => (s.length >= 2 && s.startsWith('"') && s.endsWith('"') ? s.slice(1, -1) : s);
+
+function toParam(name: string, type: string, args: string[], pos: number, inner: string): { param: Param; slots: number } | null {
   switch (type) {
     case "float":
     case "int":
@@ -113,7 +115,7 @@ function toParam(name: string, type: string, args: string[], pos: number): { par
     case "button":
       return { param: { kind: "fixed", name, pos, value: "0" }, slots: 1 };
     case "value":
-      return { param: { kind: "fixed", name, pos, value: args[0] ?? "" }, slots: 1 };
+      return { param: { kind: "fixed", name, pos, value: `"${unquoted(inner.trim()).replace(/(^|[^\\])"/g, '$1\\"')}"` }, slots: 1 };
     default:
       return null;
   }
@@ -135,14 +137,15 @@ export function guiParams(lines: readonly string[]): Param[] {
       const [, rawName, type, open] = head;
       const end = closing(line, ENTRY_HEAD.lastIndex, CLOSE[open]);
       if (end < 0) break;
-      const args = splitArgs(line.slice(ENTRY_HEAD.lastIndex, end));
+      const inner = line.slice(ENTRY_HEAD.lastIndex, end);
+      const args = splitArgs(inner);
       const name = plain(rawName);
       at = end + 1;
       if (type === "separator") params.push({ kind: "separator" });
       else if (type === "note") params.push({ kind: "note", text: plain(args.join(",")) });
       else if (type === "link") params.push({ kind: "link", name: args.length > 1 ? plain(args[args.length - 2]) : name, url: args[args.length - 1] ?? "" });
       else {
-        const made = toParam(name, type, args, pos);
+        const made = toParam(name, type, args, pos, inner);
         if (!made) continue;
         params.push(made.param);
         pos += made.slots;

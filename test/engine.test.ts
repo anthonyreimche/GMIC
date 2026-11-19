@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { NeedsUpdateError, NotSetUpError, createEngine, gmicError, pngBitDepth, type Programs } from "../src/gmic/engine";
 import type { KeptProgram, ProgramRunOptions, ProgramRunResult } from "../src/safelight";
+import { decodeCimg, encodeCimg } from "../src/gmic/cimg";
+import { stackArgs } from "../src/gmic/script";
 
 const PROGRAM: KeptProgram = { token: "t1", path: "C:\\gmic\\gmic.exe", name: "gmic.exe" };
 const fixture = readFileSync(join(__dirname, "fixtures", "filters.gmic"), "utf8");
@@ -140,5 +142,36 @@ describe("createEngine", () => {
     const engine = createEngine(programs);
     expect(await engine.version()).toBe("4.0.7");
     expect(await engine.help("blur")).toBe("  blur:\n    Blur selected images.");
+  });
+});
+
+describe("runStack", () => {
+  it("sends the image as a float CImg with the stack's command file, and reads back the first result", async () => {
+    const out = encodeCimg({ width: 1, height: 1, channels: 3, data: new Float32Array([255, 0, 127.5]) });
+    const { programs, calls } = fakePrograms(() => ({ files: { "out.cimg": out } }));
+    const engine = createEngine(programs);
+    const input = { width: 1, height: 1, channels: 3, data: new Float32Array([1, 2, 3]) };
+    const result = await engine.runStack(input, [{ kind: "line", line: "blur 1" }], { vars: { _host: "safelight" } });
+    expect(calls[0].args).toEqual(stackArgs());
+    expect(calls[0].options.outputs).toEqual(["out.cimg"]);
+    expect(decodeCimg(calls[0].options.files!["input.cimg"])[0]).toEqual(input);
+    const file = dec(calls[0].options.files!["job.gmic"]);
+    expect(file).toContain("_host=safelight");
+    expect(file).toContain("_sl_step_1 :\n  blur 1");
+    expect(result).toEqual({ width: 1, height: 1, channels: 3, data: new Float32Array([255, 0, 127.5]) });
+  });
+
+  it("says so when G'MIC leaves nothing", async () => {
+    const { programs } = fakePrograms(() => ({}));
+    const input = { width: 1, height: 1, channels: 3, data: new Float32Array(3) };
+    await expect(createEngine(programs).runStack(input, [{ kind: "line", line: "rm" }])).rejects.toThrow(/no image/);
+  });
+
+  it("passes the signal on, and a cancelled run rejects as an abort", async () => {
+    const { programs, calls } = fakePrograms(() => ({ killed: "cancelled", exitCode: null }));
+    const signal = new AbortController().signal;
+    const input = { width: 1, height: 1, channels: 3, data: new Float32Array(3) };
+    await expect(createEngine(programs).runStack(input, [{ kind: "line", line: "blur 1" }], { signal })).rejects.toMatchObject({ name: "AbortError" });
+    expect(calls[0].options.signal).toBe(signal);
   });
 });
