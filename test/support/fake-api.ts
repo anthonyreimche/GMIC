@@ -6,6 +6,7 @@
 import * as React from "react";
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 import type {
+  CanvasTool,
   CatalogPhoto,
   CommandContribution,
   DevelopOverlayState,
@@ -111,6 +112,10 @@ export interface Rig {
   commits: string[];
   captures: number[];
   overlay: DevelopOverlayState;
+  /** The canvas tool the extension holds now. */
+  canvasTool(): CanvasTool | null;
+  /** What another extension taking the canvas does to ours. */
+  releaseCanvasTool(): void;
   editStates: Map<string, EditState>;
   develop: UseBoundStore<StoreApi<DevelopFake>>;
   commands: CommandContribution[];
@@ -150,6 +155,7 @@ export function fakeApi(): Rig {
     setDynParams: (patch) => set((st) => ({ paramBag: { ...st.paramBag, ...patch } })),
     commitEdit: async (label) => void commits.push(label),
   }));
+  const toolStore = create<{ tool: CanvasTool | null }>()(() => ({ tool: null }));
   const catalogStore = create<{ photos: CatalogPhoto[] }>()(() => ({ photos: [PHOTO] }));
 
   const rig: Rig = {
@@ -180,7 +186,10 @@ export function fakeApi(): Rig {
       radiusToImage: null,
       region: null,
       imageAspect: 2,
+      zoomScale: 1,
     },
+    canvasTool: () => toolStore.getState().tool,
+    releaseCanvasTool: () => toolStore.setState({ tool: null }),
     editStates: new Map(),
     develop,
     commands: [],
@@ -235,11 +244,18 @@ export function fakeApi(): Rig {
     develop: {
       setViewValues: (v: Record<string, unknown> | null) => void rig.viewValues.push(v),
       useDevelopOverlay: () => rig.overlay,
+      setCanvasTool: (tool: CanvasTool | null) => toolStore.setState({ tool }),
+      useCanvasToolHeld: () => toolStore((s) => s.tool !== null),
+      framePoint: (el: Element, clientX: number, clientY: number) => {
+        const r = el.getBoundingClientRect();
+        return { x: clientX - r.left, y: clientY - r.top };
+      },
       captureFloatFrame: async (_params: unknown, options: { maxEdge?: number }): Promise<FloatFrame> => {
         rig.captures.push(options.maxEdge ?? 0);
         return { data: new Float32Array(2 * 1 * 4).fill(0.5), width: 2, height: 1, space: { encoding: "perceptual", primaries: "rec709" }, point: "pre-output" };
       },
     },
+    cursors: { resolve: (token: string) => (token === "crop-move" ? "move" : "crosshair") },
     commands: {
       register: (c: CommandContribution) => void rig.commands.push(c),
       canSaveBeside: async () => null,

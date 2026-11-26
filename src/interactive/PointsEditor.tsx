@@ -1,18 +1,20 @@
 // Points drawn on the photo for Warp (keypoints: press on what to move, drag
 // it where it goes) and Colorize (colour points). In the panel, a switch to
 // place them and the list; over the photo, the points as handles, and while
-// placing, a layer that takes presses. Double-click a point to remove it.
+// placing, a layer that takes presses (placing holds the canvas as a tool; see
+// Overlay). Double-click a point to remove it.
 
 import { React, api } from "../rt";
 import { shared, useShared } from "../state";
 import type { CanvasEditorProps, EditorProps } from "./editors";
+import { handleStyle, percentAt } from "./handles";
 import { COLOUR_SIZE, WARP_SIZE, readPoints } from "./models";
 
 export type PointsKind = "warp" | "colour";
 
 const SIZE: Record<PointsKind, number> = { warp: WARP_SIZE, colour: COLOUR_SIZE };
 const muted = { margin: 0, fontSize: 11, opacity: 0.7 } as const;
-const clampPercent = (v: number) => Math.min(100, Math.max(0, v));
+const WITHIN_PHOTO = [0, 100] as const;
 
 const hex = (rgb: readonly number[]) => `#${rgb.map((v) => Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, "0")).join("")}`;
 const parseHex = (text: string): number[] | null => {
@@ -23,12 +25,6 @@ const parseHex = (text: string): number[] | null => {
 function usePlacing(id: string): [boolean, (on: boolean) => void] {
   const placing = useShared((s) => s.placing === id);
   const set = React.useCallback((on: boolean) => shared().setState(on ? { placing: id, focus: id } : { placing: null }), [id]);
-  React.useEffect(() => {
-    if (!placing) return;
-    const stop = (e: KeyboardEvent) => e.key === "Escape" && set(false);
-    window.addEventListener("keydown", stop);
-    return () => window.removeEventListener("keydown", stop);
-  }, [placing, set]);
   return [placing, set];
 }
 
@@ -119,24 +115,10 @@ export function pointsPanel(kind: PointsKind) {
   };
 }
 
-const handle = {
-  position: "absolute",
-  width: 12,
-  height: 12,
-  marginLeft: -6,
-  marginTop: -6,
-  borderRadius: "50%",
-  border: "2px solid white",
-  boxShadow: "0 0 0 1px rgba(0,0,0,0.7), 0 1px 3px rgba(0,0,0,0.5)",
-  pointerEvents: "auto",
-  touchAction: "none",
-  cursor: "move",
-} as const;
-
 export function pointsCanvas(kind: PointsKind) {
   return function PointsCanvas(props: CanvasEditorProps & { id: string }) {
     const root = React.useRef<HTMLDivElement>(null);
-    const [placing] = usePlacing(props.id);
+    const placing = useShared((s) => s.placing === props.id);
     const brush = useShared((s) => s.brush);
     const [dragging, setDragging] = React.useState<number | null>(null);
     /** Whether the gesture changed anything, so a bare click adds no undo step. */
@@ -146,14 +128,7 @@ export function pointsCanvas(kind: PointsKind) {
     const write = (next: number[][]) => props.setData({ points: next });
     const noun = kind === "warp" ? "keypoint" : "colour";
 
-    /** A press's position in % of the frame, zoom-proof. */
-    const percent = (e: React.PointerEvent | React.MouseEvent): [number, number] => {
-      const el = root.current!;
-      const r = el.getBoundingClientRect();
-      const sx = r.width > 0 ? el.offsetWidth / r.width : 1;
-      const sy = r.height > 0 ? el.offsetHeight / r.height : 1;
-      return [clampPercent((((e.clientX - r.left) * sx - image.x) / image.w) * 100), clampPercent((((e.clientY - r.top) * sy - image.y) / image.h) * 100)];
-    };
+    const percent = (e: React.PointerEvent): [number, number] => percentAt(root.current!, e, image, WITHIN_PHOTO);
     const screen = (x: number, y: number) => ({ left: image.x + (x / 100) * image.w, top: image.y + (y / 100) * image.h });
     const moveTo = (i: number, at: [number, number]) => write(points.map((p, j) => (j === i ? [...at, ...p.slice(2)] : p)));
     const drag = {
@@ -176,7 +151,7 @@ export function pointsCanvas(kind: PointsKind) {
         {placing && (
           <div
             data-testid="gmic-place-layer"
-            style={{ position: "absolute", left: image.x, top: image.y, width: image.w, height: image.h, pointerEvents: "auto", cursor: "crosshair", touchAction: "none" }}
+            style={{ position: "absolute", left: image.x, top: image.y, width: image.w, height: image.h, pointerEvents: "auto", cursor: api.cursors.resolve("crosshair"), touchAction: "none" }}
             onPointerDown={(e) => {
               const at = percent(e);
               e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -202,7 +177,7 @@ export function pointsCanvas(kind: PointsKind) {
             role="slider"
             aria-label={`${props.name}: ${noun} ${i + 1}`}
             aria-valuetext={`${Math.round(p[0])} %, ${Math.round(p[1])} %`}
-            style={{ ...handle, ...screen(p[0], p[1]), background: kind === "colour" ? hex(p.slice(2)) : "rgba(255,255,255,0.15)" }}
+            style={{ ...handleStyle(12), ...screen(p[0], p[1]), background: kind === "colour" ? hex(p.slice(2)) : "rgba(255,255,255,0.15)" }}
             onPointerDown={(e) => {
               e.stopPropagation();
               e.currentTarget.setPointerCapture?.(e.pointerId);

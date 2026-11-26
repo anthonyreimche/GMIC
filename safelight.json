@@ -1,7 +1,7 @@
 {
   "id": "gmic",
   "name": "G'MIC",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "G'MIC's filters and your own G'MIC scripts as Develop panels: install them from the G'MIC store, preview them live on the photo, and every export applies them. Also runs G'MIC from the Terminal and the safelight command line. Uses the gmic program you install from gmic.eu.",
   "author": "Anthony Reimche",
   "main": "dist/index.js",
@@ -9,7 +9,7 @@
   "categories": ["Develop", "Effects"],
   "keywords": ["g'mic", "gmic", "filters", "effects", "scripts", "artistic"],
   "repository": "anthonyreimche/GMIC",
-  "minAppVersion": "3.2.6",
+  "minAppVersion": "3.2.8",
   "permissions": {
     "programs": true,
     "network": ["https://gmic.eu"],

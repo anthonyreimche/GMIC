@@ -13,8 +13,9 @@ import { PREVIEW_SIZE_KEY, previewEdge } from "./Prefs";
 import { MODE_OFF, qualified, texture } from "./stage";
 import { STAGE_ID, itemKey, photoSteps, readState, statePatch, withData, withValue, type Item } from "./stack";
 import { editorFor } from "./interactive";
+import { handleStyle, percentAt } from "./interactive/handles";
 import { ensureCatalogue, shared, useInstalled, useShared } from "./state";
-import type { DevelopOverlayState, DevelopParams, OverlayRect } from "./safelight";
+import type { CanvasTool, DevelopOverlayState, DevelopParams, OverlayRect } from "./safelight";
 
 const SPACE = { encoding: "perceptual", primaries: "rec709" } as const;
 
@@ -124,22 +125,7 @@ function usePreview(deps: CommandDeps, overlay: DevelopOverlayState) {
   }, [deps, items, photoId, params, bag, bypassed, catalogue, rect, imageRect, nonce, size]);
 }
 
-const handleStyle = {
-  position: "absolute",
-  width: 14,
-  height: 14,
-  marginLeft: -7,
-  marginTop: -7,
-  borderRadius: "50%",
-  border: "2px solid white",
-  boxShadow: "0 0 0 1px rgba(0,0,0,0.7), 0 1px 3px rgba(0,0,0,0.5)",
-  background: "rgba(255,255,255,0.15)",
-  pointerEvents: "auto",
-  touchAction: "none",
-  cursor: "move",
-} as const;
-
-const clampPercent = (v: number) => Math.min(300, Math.max(-200, v));
+const AROUND_PHOTO = [-200, 300] as const;
 
 function Handles(props: { item: Item; image: OverlayRect }) {
   const root = React.useRef<HTMLDivElement>(null);
@@ -155,12 +141,7 @@ function Handles(props: { item: Item; image: OverlayRect }) {
   const percent = (e: React.PointerEvent): [number, number] | null => {
     const el = root.current;
     if (!el) return null;
-    const box = el.getBoundingClientRect();
-    const sx = box.width > 0 ? el.offsetWidth / box.width : 1;
-    const sy = box.height > 0 ? el.offsetHeight / box.height : 1;
-    const x = ((e.clientX - box.left) * sx - props.image.x) / props.image.w;
-    const y = ((e.clientY - box.top) * sy - props.image.y) / props.image.h;
-    return [clampPercent(x * 100), clampPercent(y * 100)];
+    return percentAt(el, e, props.image, AROUND_PHOTO);
   };
   const set = (name: string, e: React.PointerEvent) => {
     const at = percent(e);
@@ -181,7 +162,7 @@ function Handles(props: { item: Item; image: OverlayRect }) {
             aria-label={`${props.item.name}: ${p.name}`}
             aria-valuetext={`${Math.round(x)} %, ${Math.round(y)} %`}
             title={p.name}
-            style={{ ...handleStyle, left: props.image.x + (x / 100) * props.image.w, top: props.image.y + (y / 100) * props.image.h }}
+            style={{ ...handleStyle(14), background: "rgba(255,255,255,0.15)", left: props.image.x + (x / 100) * props.image.w, top: props.image.y + (y / 100) * props.image.h }}
             onPointerDown={(e) => {
               e.stopPropagation();
               e.currentTarget.setPointerCapture(e.pointerId);
@@ -208,12 +189,47 @@ export function GmicOverlay(props: { deps: CommandDeps }) {
   const focus = useShared((s) => s.focus);
   const items = useInstalled();
   const item = items.find((i) => i.id === focus);
+  const placing = usePlacingTool();
   return (
     <>
       {overlay.rect && <Working shown={overlay.rect} />}
-      {item && overlay.imageRect && <CanvasEditor item={item} image={overlay.imageRect} />}
+      {item && overlay.imageRect && !placing && <CanvasEditor item={item} image={overlay.imageRect} />}
     </>
   );
+}
+
+/** The photo, held as a canvas tool while points are placed on it: Escape,
+ *  zoom and pan are the canvas's own. Whoever else takes the canvas ends it. */
+const PLACING_TOOL: CanvasTool = {
+  overlay: PlacingOverlay,
+  zoomable: true,
+  onEscape: () => shared().setState({ placing: null }),
+};
+
+function usePlacingTool(): boolean {
+  const placing = useShared((s) => s.placing !== null);
+  const held = api.develop.useCanvasToolHeld();
+  const armed = React.useRef(false);
+  React.useEffect(() => {
+    if (!held && armed.current) shared().setState({ placing: null });
+  }, [held]);
+  React.useEffect(() => {
+    if (!placing) return;
+    api.develop.setCanvasTool(PLACING_TOOL);
+    armed.current = true;
+    return () => {
+      armed.current = false;
+      api.develop.setCanvasTool(null);
+    };
+  }, [placing]);
+  return placing;
+}
+
+function PlacingOverlay() {
+  const overlay = api.develop.useDevelopOverlay();
+  const id = useShared((s) => s.placing);
+  const item = useInstalled().find((i) => i.id === id);
+  return item && overlay.imageRect ? <CanvasEditor item={item} image={overlay.imageRect} /> : null;
 }
 
 /** While G'MIC works on the preview: the thin bar along the top of the photo

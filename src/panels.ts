@@ -36,6 +36,7 @@ export function panelSync(host: Host): PanelSync {
           component: () => React.createElement(FilterPanel, { id: item.id }),
           order: 200 + index,
           defaultDock: { module: "develop", direction: "right" },
+          modules: ["develop"],
           onReset: () => resetItem(item),
           ownsBag: [itemKey(item.id)],
         });

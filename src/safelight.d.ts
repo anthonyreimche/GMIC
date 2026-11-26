@@ -4,10 +4,241 @@
 //
 // Import its types with `import type`. It declares a few of the host's
 // functions for their types only; reach those through `api`.
-// Safelight 3.2.6. GPL-3.0-only.
+// Safelight 3.2.7. GPL-3.0-only.
 
 import type { ButtonHTMLAttributes, CSSProperties, ComponentType, DragEvent, InputHTMLAttributes, JSX, MemoExoticComponent, MouseEvent, ReactNode, TextareaHTMLAttributes } from "react";
 import type { StoreApi, UseBoundStore } from "zustand";
+
+// src/extensions/api/library.ts
+
+export type RenamePhotoResult = {
+    ok: true;
+    filename: string;
+} | {
+    ok: false;
+    reason: string;
+};
+
+/** The Library's photo right-click menu, for a surface that lists photos. */
+export interface PhotoActions {
+    /** Right-click handler for a photo cell. Right-clicking a photo that's part
+     *  of the current selection targets the whole selection; right-clicking an
+     *  unselected one selects just it first. */
+    onContextMenu: (id: string, e: MouseEvent) => void;
+    /** The menu and its dialogues. Render them inside the surface. */
+    overlays: ReactNode;
+}
+
+export interface CullingShortcutOptions {
+    /** Handle the thumbnail-size actions (- / =), which step the Library grid's
+     *  cell size. Surfaces whose cells are sized by their container (a filmstrip
+     *  follows its rail) pass false and leave the keys alone. Default true. */
+    sizeSteps?: boolean;
+}
+
+/** One line of a preset's summary. */
+export interface PresetDiff {
+    label: string;
+    value: string;
+}
+
+/** One selectable adjustment in the Save Preset dialogue. `keys` are the
+ *  DevelopParams keys copied when the field is checked; `changed` marks fields
+ *  that differ from the defaults (pre-checked by default). */
+export interface PresetField {
+    id: string;
+    label: string;
+    keys: (keyof DevelopParams)[];
+    changed: boolean;
+    /** Short current value, shown beside scalar fields. */
+    value?: string;
+    /** Qualified paramBag keys copied when checked (extension-stage fields and
+     *  the Display transform field; core fields copy `keys` instead). */
+    bagKeys?: string[];
+    /** The Display transform field's defaults for `bagKeys`, copied in place of
+     *  a key the bag holds no value for. */
+    bagDefaults?: Record<string, unknown>;
+    /** "global" (default) is offered and pre-checked when changed; "per-image" is
+     *  hidden under "Show all" and never pre-selected — spatial edits (crop,
+     *  retouch, warp …) that don't transfer meaningfully to another photo. */
+    scope?: "global" | "per-image";
+    /** Set on extension-contributed stage fields (drives the "per-image" tag). */
+    extension?: boolean;
+}
+
+export interface ImportedPreset {
+    name: string;
+    group?: string;
+    params: Partial<DevelopParams>;
+    paramBag?: Record<string, unknown>;
+}
+
+export type PresetImportOutcome = {
+    status: "imported";
+    preset: ImportedPreset;
+}
+/** No installed importer claims this file type. */
+ | {
+    status: "no-importer";
+    extension: string;
+}
+/** An importer claimed the file but found no develop settings in it. */
+ | {
+    status: "no-settings";
+}
+/** An importer claimed the file but threw or ran out of time reading it. */
+ | {
+    status: "failed";
+    reason: string;
+}
+/** A .json file that isn't a Safelight preset this build can read. */
+ | {
+    status: "unreadable";
+};
+
+/** A folder an extension keeps across launches (`api.project.pickKeptDirectory`),
+ *  opened again by its token: the folder, or why it can't be written into now.
+ *  "gone": no folder at that path, or its drive or share isn't connected.
+ *  "unwritable": the folder is there but may not be written into; on Windows
+ *  only a folder that can't even be looked at shows here, and one whose
+ *  permissions refuse writes is reported by its first write instead. "unknown": the token
+ *  names no folder kept for this extension (forgotten, the extension
+ *  uninstalled since, or, in the browser build, picked before the page was
+ *  loaded). */
+export type KeptDirectory = {
+    folder: FileSystemDirectoryHandle;
+} | {
+    problem: "gone" | "unwritable" | "unknown";
+};
+
+/** What core asks of an image decoder (api.library.registerDecoder). */
+export interface ImageDecodeRequest {
+    /** The file's name, its extension included. */
+    name: string;
+    /** The long edge the caller needs, such as a grid thumbnail's. A hint: a
+     *  decoder may answer at any size from this up to the full size. */
+    targetEdge?: number;
+    /** For a RAW format: core keeps this decode as the photo's source at native
+     *  resolution, so an answer smaller than the frame is refused. */
+    fullSize: boolean;
+    /** For a RAW format, the white balance the photo is known to have been shot
+     *  at (green at 1). Balance by these when given, and by the camera's own
+     *  otherwise. */
+    asShotMultipliers?: readonly [number, number, number];
+    /** Work for a background pass (thumbnails, the cache) rather than a photo the
+     *  person is waiting on. Interactive requests run first. */
+    background: boolean;
+    /** Aborted when core no longer needs the answer or the decode ran out of
+     *  time. Stop work when it fires. */
+    signal: AbortSignal;
+}
+
+/** A decoder's image: RGBA rows from the top, `width` × `height`, four values
+ *  per pixel with the fourth ignored. `oriented` says the pixels already stand
+ *  as the photo's EXIF orientation shows it; with false, core turns them. A
+ *  HEIF image must be upright (its own rotation applied). The array must be
+ *  whole (not a view into a larger buffer, or core copies it) and becomes
+ *  core's: don't touch it after answering. */
+export type DecodedImageResult = {
+    /** 8-bit sRGB, for a non-RAW format only. */
+    kind: "rgba8";
+    width: number;
+    height: number;
+    data: Uint8ClampedArray;
+    oriented: boolean;
+    /** The image's full size when this decode is reduced (to `targetEdge`). */
+    sourceWidth?: number;
+    sourceHeight?: number;
+} | {
+    /** Linear light, Rec. 709 primaries at D65, nothing clipped: colour
+     *  outside Rec. 709 as negative channels, highlights above 1 kept. For a
+     *  non-RAW format the values are display-referred (1 is the file's
+     *  white). For a RAW format this is the only kind accepted: the camera's
+     *  black subtracted and its matrix applied, balanced at the as-shot
+     *  multipliers, scaled so the least amplified channel saturates at 1,
+     *  with no tone curve, gamma, auto-brightening or baseline exposure. */
+    kind: "linear";
+    width: number;
+    height: number;
+    data: Float32Array;
+    oriented: boolean;
+    /** RAW: the multipliers the image was balanced at, green at 1. */
+    asShotMultipliers?: [number, number, number];
+    /** RAW: the as-shot white balance in kelvin. */
+    colorTemperature?: number;
+    /** RAW: EV the sensor sat below the tagged ISO (Fujifilm DR modes),
+     *  already made up for in `data`. */
+    rawExposureBias?: number;
+    /** The image's full size when this decode is reduced (to `targetEdge`). */
+    sourceWidth?: number;
+    sourceHeight?: number;
+};
+
+/** A decoder an extension offers for formats Safelight already reads (see
+ *  api.library.registerDecoder). */
+export interface ImageDecoderContribution {
+    /** Unique among your decoders. */
+    id: string;
+    /** Shown in Preferences ▸ File formats. */
+    label: string;
+    /** Change it when your decoder's output changes: decodes core keeps (the
+     *  RAW cache) are filed under it, so a new version decodes afresh. Default
+     *  "1". */
+    version?: string;
+    /** The file extensions it reads, such as [".heic", ".heif"] or [".cr3"]:
+     *  only extensions Safelight already imports. */
+    extensions: readonly string[];
+    /** The image in `file`, or null when this decoder can't read it (the next
+     *  decoder in the person's order is tried, and the file is remembered as one
+     *  this version can't read). For a failure that may pass (a Worker that
+     *  didn't start, a download that failed), throw an error with `transient:
+     *  true` (TransientDecodeError): the next decoder is tried and nothing is
+     *  remembered. Running out of memory (a RangeError) counts as transient too.
+     *  Any other throw counts as null. */
+    decode(file: Blob, request: ImageDecodeRequest): Promise<DecodedImageResult | null>;
+    /** Optional, and cheap: whether this decoder reads `file`, for a decoder
+     *  that reads only some of a format's files (pixel-shift DNGs among plain
+     *  ones, say). Read a header, not the image. Core asks it before queueing a
+     *  decode, outside the one-at-a-time queue, and remembers the answer for
+     *  the file (its name and size) and this `version`; for a RAW photo, also
+     *  across launches. A file it declines is passed to the next decoder as if
+     *  this one weren't in the person's order: it never waits behind your
+     *  decodes, and its kept decodes and failure marks stay exactly as without
+     *  your decoder. Base the answer on the file's content alone. A throw, an
+     *  answer later than 5 s (`signal` is then aborted) or one that isn't a
+     *  boolean counts as true and isn't remembered. Without it, every file of
+     *  your formats is yours to decode. Needs Safelight 3.2.7. */
+    accepts?(file: Blob, request: ImageAcceptRequest): boolean | Promise<boolean>;
+}
+
+/** What core passes ImageDecoderContribution.accepts. */
+export interface ImageAcceptRequest {
+    /** The file's name, its extension included. */
+    name: string;
+    /** Aborted when the check has run past its 5 s. */
+    signal: AbortSignal;
+}
+
+/** An error a decoder throws for a failure that may pass: core tries the next
+ *  decoder now and the file again later, never remembering it as one the
+ *  decoder can't read. Any error with `transient: true` counts the same, so an
+ *  extension can make its own: `Object.assign(new Error(message), { transient:
+ *  true })`. Needs Safelight 3.2.7. */
+export interface TransientDecodeError extends Error {
+    transient: true;
+}
+
+/** A decoder as Preferences lists it: core's or an extension's. */
+export interface ImageDecoderInfo {
+    /** Core's: "browser", "tiff", "netpbm", "heif", "libraw"; an extension's:
+     *  "<extension id>/<id>". */
+    id: string;
+    label: string;
+    /** "core", or the id of the extension that registered it. */
+    owner: string;
+    /** Ids of the formats it reads (see Preferences ▸ File formats). */
+    formats: readonly string[];
+}
 
 // src/catalog/photo.ts
 
@@ -129,6 +360,7 @@ export interface ExifData {
     baselineExposure?: number | null;
     baselineShadows?: number | null;
     cameraMatchVersion?: number;
+    cameraMatchDecoders?: string;
     gpsLatitude?: number;
     gpsLongitude?: number;
     gpsAltitude?: number;
@@ -150,7 +382,9 @@ export interface EditSnapshot {
     paramBag?: Record<string, unknown>;
 }
 
-export type SortField = 'dateImported' | 'dateCreated' | 'filename' | 'rating';
+/** dateEdited: when the photo's edit last changed (catalog/edit-times), the
+ *  never-edited counting as oldest. */
+export type SortField = 'dateImported' | 'dateCreated' | 'dateEdited' | 'filename' | 'rating';
 
 export type SortDirection = 'asc' | 'desc';
 
@@ -205,6 +439,8 @@ export interface PanelContribution {
     /** Sort position (lower = higher up). Default 100. */
     order?: number;
     defaultDock?: PanelDockDefault;
+    /** The modules the panel may be docked in; omitted, every module (Safelight 3.2.8). */
+    modules?: readonly string[];
     /** Old panel ids this panel takes the place of in saved layouts, e.g. a panel
      *  that moved here from another extension. Wherever a layout names one of
      *  them, and no registered panel uses that id any more, the dock shows this
@@ -321,6 +557,30 @@ export interface LayoutContribution {
     modules?: Partial<Record<string, ModuleLayoutDef>>;
 }
 
+/** One of the person's saved layouts (Preferences ▸ Interface ▸ Panel layout),
+ *  as api.layouts.saved lists it. */
+export interface SavedLayout {
+    /** "user.…" */
+    id: string;
+    name: string;
+    /** Keyed by module id. A module left out shows its defaults. */
+    modules: Partial<Record<string, ModuleLayoutDef>>;
+    /** Whether picking it switches extensions on and off to its ticks. */
+    switchesExtensions?: boolean;
+    /** Its ticks: on or off by extension id. */
+    extensions?: Record<string, boolean>;
+}
+
+/** What api.layouts.saved.save writes. A saved layout's extension ticks are
+ *  never among it: those stay the person's to set in Preferences. */
+export interface SavedLayoutInput {
+    /** Leave out to create a saved layout. */
+    id?: string;
+    name: string;
+    /** Replaces all its arrangements. Entries that aren't layouts are left out. */
+    modules: Partial<Record<string, ModuleLayoutDef>>;
+}
+
 /** A top-level module beside Library and Develop. Registering one adds its tab
  *  to the strip, lets it pop out into its own window, gives it its own dock
  *  layout, and makes its id valid for `navigation.goTo`. */
@@ -396,8 +656,10 @@ export interface PipelineContribution {
      *  default baseline tone (the camera-style lift applied to RAW sources in
      *  linear light), so the transform is the profile. It drops the baseline
      *  only: the core filmic shoulder still runs unless `skipToneShoulder` is
-     *  set. On process version 2 photos that includes the camera baseline after
-     *  channel reconstruction (the refit and the camera maker's exposure offset). */
+     *  set. On process version 2 photos that includes the camera baseline's
+     *  refit and the camera match's Shadows lift. The RAW's camera exposure
+     *  (its camera match, else its maker's offset) is not part of the look and
+     *  stays, so the transform receives the photo at its camera's exposure. */
     skipBaseCurve?: boolean;
     /** The transform brings its own highlight roll-off: the core filmic
      *  shoulder (which compresses luminance above 0.85 at Highlights 0) is
@@ -686,6 +948,12 @@ export interface UniformDeclaration {
      *  ImageSpaceMatrix, which core finishes for the image's aspect wherever the
      *  image is drawn. */
     space?: "image";
+    /** The extension works this value out for each photo (from its lens, its
+     *  metadata, its pixels) rather than the user setting it. It still rides the
+     *  photo's bag, so every render of the photo draws it, but it never counts as
+     *  an edit: setting it adds no history step and leaves the photo unedited, and
+     *  Copy Settings, Paste and presets leave it out. */
+    computed?: boolean;
 }
 
 /** A matrix a geometry stage derives, row-major: `normalized` acts on image
@@ -731,7 +999,9 @@ export interface TextureRequirement {
     /** Parameter bag key for the texture data. */
     key: string;
     /** "lut" / "dynamic": pixel data supplied through api.setStageTexture (one
-     *  global bag, not per photo). "coverage": the photo's paramBag value at
+     *  global bag, not per photo), sampled under its `key` by the inline glsl
+     *  and helpers, and by any of the stage's passes that names the key in its
+     *  glsl, helpers or region (since 3.2.7). "coverage": the photo's paramBag value at
      *  "{stageId}.{key}" is a BrushDab[] (the shape core masks use, source-UV,
      *  radius in image-height units); the renderer bakes it into brush coverage
      *  per render, so it persists, undoes and exports like any edit, and the
@@ -753,6 +1023,14 @@ export interface TextureRequirement {
      *  isn't painted. Not available inside passes. One per stage; it takes a
      *  stage texture unit, as "lut" and "dynamic" do. */
     kind: "lut" | "coverage" | "dynamic" | "photo" | "atlas" | "paint";
+    /** For a "lut" or "dynamic" texture that holds one photo's own data (a
+     *  fitted lookup, a warp field): every frame of a photo, in the live view,
+     *  thumbnails, exports and headless renders, draws the variant filed under
+     *  the photo's id (api.setStageTexture's `variant`, or a provider's), unless
+     *  the photo's bag names another. A photo whose variant has no data draws
+     *  the texture with none, never another photo's. Ids that aren't variant
+     *  names name none. Needs Safelight 3.2.7. */
+    perPhoto?: boolean;
     width?: number;
     height?: number;
     format?: "rgba8" | "rgba16f" | "r8";
@@ -853,6 +1131,10 @@ declare const MASKABLE_PHASES: readonly ProcessingPhase[];
  *    #define SL_PROCESS_VERSION // the photo's process version (see ProcessingStageContribution.glsl)
  *  Pass `uniforms` share the owning stage's qualified-key namespace, so the same
  *  param (e.g. "{id}.lumaAmount") can drive both the pass and the inline glsl.
+ *  A pass samples the stage's "lut" and "dynamic" textures by their keys, as
+ *  `sampler2D`s, laid out like the source in source-UV space: the variant the
+ *  frame's bag names, and when that data changes the passes from the first
+ *  that names the texture draw again (since 3.2.7).
  *  A pass that fails to compile takes its stage out of the frame, inline glsl
  *  included, and is reported as the stage's failure. */
 export interface StagePass {
@@ -1119,6 +1401,15 @@ export interface ProcessingStageContribution {
      *  on geometry stages, on stages that `produce` values and with `mask`.
      *  Needs Safelight 3.2.4; older builds draw the stage everywhere. */
     viewOnly?: boolean;
+    /** The display transform (a PipelineContribution id) this stage belongs to:
+     *  it runs only in frames of photos that render with that transform, in the
+     *  live view, thumbnails, exports and headless renders alike, and every
+     *  other photo draws without it whatever its bag holds. For a stage that
+     *  carries a transform's look, so registering it never reaches photos that
+     *  render with another. Refused on geometry stages and on stages that
+     *  `produce` values. Needs Safelight 3.2.7; older builds draw the stage
+     *  everywhere. */
+    transform?: string;
     /** For a stage in the decode or noise-reduction phase: its result keeps the
      *  photo's own fine detail in place, as a chromatic-aberration or flat-field
      *  correction does. With Dynamic render resolution, Develop then goes on
@@ -1131,8 +1422,8 @@ export interface ProcessingStageContribution {
     /** The stage needs the decode as the sensor recorded it, as a film negative
      *  inversion does to read the film's densities. While the stage is at work
      *  on a photo (its `dormantWhen` doesn't hold), the photo renders without
-     *  the baseline tone, the camera baseline after it (the refit, the maker's
-     *  exposure offset and the camera match's Shadows lift) and channel
+     *  the baseline tone, the camera baseline after it (the refit, the camera
+     *  exposure and the camera match's Shadows lift) and channel
      *  reconstruction: in Develop, thumbnails, exports and captures alike, and
      *  in every stage's passes. At rest, nothing changes. Needs `dormantWhen`
      *  (registration refuses the stage without it). Only RAW photos carry a
@@ -1275,6 +1566,10 @@ export interface GridFilterContribution {
      *  test that reads none, such as one that passes every photo while its filter
      *  is off. Left out, every change to any photo runs the filter again. */
     reads?: readonly (keyof CatalogPhoto)[];
+    /** Set when `test` calls api.catalog.editedAt: edit times are no photo field,
+     *  so `reads` can't name them, and the grid is filtered again each time an
+     *  edit is stored only while this is set. Needs Safelight 3.2.6. */
+    readsEdits?: boolean;
     /** Invoked by the Library "Clear filters" action so search clears too. */
     onClear?(): void;
 }
@@ -1292,6 +1587,9 @@ export interface LibrarySortContribution {
      *  "rating"). Declared, the grid is sorted again only when one of them changes
      *  on some photo; left out, every change to any photo sorts it again. */
     reads?: readonly (keyof CatalogPhoto)[];
+    /** Set when `compare` calls api.catalog.editedAt, as for a grid filter's
+     *  `readsEdits`. Needs Safelight 3.2.6. */
+    readsEdits?: boolean;
 }
 
 /** An item appended to the Library grid's right-click context menu. Core groups
@@ -1331,6 +1629,28 @@ export interface SlotContribution {
     order?: number;
 }
 
+export interface ThumbnailBadgeProps {
+    /** The photo the cell shows. */
+    photo: CatalogPhoto;
+}
+
+/** A badge in the top-right corner of every Library grid and Filmstrip
+ *  thumbnail, beside the flag, such as a duplicate, collection or location
+ *  marker. `component` draws it for one photo, or returns null for a photo it
+ *  doesn't mark; draw it with `api.components.ThumbnailBadge` so it looks like
+ *  core's own. It renders once per visible cell, so keep it cheap, and read
+ *  your own state through a hook to redraw when that changes. Re-registering
+ *  the same id replaces it; disabling the extension removes it. Needs
+ *  Safelight 3.2.6. */
+export interface ThumbnailBadgeContribution {
+    /** Globally unique, e.g. "my-ext.duplicate". */
+    id: string;
+    component: ComponentType<ThumbnailBadgeProps>;
+    /** Place in the row, lower = further from the corner. Default 100; core's
+     *  file type and flag sit nearest the corner. */
+    order?: number;
+}
+
 /** An icon button in the main window's top bar, beside the built-in icons, e.g.
  *  to open an extension's own store. Re-registering the same id replaces it;
  *  disabling the extension removes it. Needs Safelight 3.2.6. */
@@ -1346,6 +1666,24 @@ export interface TopBarButtonContribution {
     /** Called when the button is clicked. A throw is logged and the bar carries on. */
     onClick(): void;
     /** Sort position among extension buttons (lower = further left). Default 100. */
+    order?: number;
+}
+
+/** A section in the top bar's Layout menu, below the layouts, such as a layout
+ *  manager's own list. Needs Safelight 3.2.6. */
+export interface LayoutMenuContribution {
+    /** Globally unique, e.g. "my-ext.layouts". */
+    id: string;
+    /** The section's content. Call `close` once an item is chosen, to close the
+     *  menu as the built-in items do. */
+    component: ComponentType<{
+        close: () => void;
+    }>;
+    /** Leave out the menu's own list of saved layouts and its "Manage layouts…"
+     *  item, for a section that lists and manages them itself. Custom and the
+     *  registered layouts stay. They come back when the extension stops. */
+    replacesSavedLayouts?: boolean;
+    /** Sort position among the sections (lower = higher up). Default 100. */
     order?: number;
 }
 
@@ -1428,6 +1766,12 @@ export interface StylesheetContribution {
 export interface SafelightAPI {
     version: 1;
     extensionId: string;
+    /** The URL of one of your own files, `path` from your folder (the one
+     *  safelight.json is in, e.g. "dist/runtime.wasm"), cache-busted by your
+     *  version: for a worker, a WebAssembly binary or a model your bundle loads.
+     *  import.meta.url is undefined in an extension's module, and the same URL
+     *  serves a Developer Tools dev-folder copy. Needs Safelight 3.2.7. */
+    assetUrl(path: string): string;
     /** The app's React instance — plugins must use this, not their own copy. */
     react: typeof import("react");
     registerPanel(c: PanelContribution): void;
@@ -1492,6 +1836,17 @@ export interface SafelightAPI {
     prepareStageTextureVariant(stageId: string, key: string, variant: string): Promise<void>;
     /** Register a keyboard shortcut; appears in Preferences ▸ Shortcuts. */
     registerKeybinding(c: KeyActionContribution): void;
+    /** Remove a shortcut this extension registered (by id), such as one for an
+     *  item the person deleted. Their rebind of it is kept, so registering it
+     *  again brings it back. Another extension's id is refused with a warning.
+     *  Needs Safelight 3.2.6. */
+    unregisterKeybinding(id: string): void;
+    /** Add a section to the top bar's Layout menu, below the layouts.
+     *  Re-registering the same id replaces it. Needs Safelight 3.2.6. */
+    registerLayoutMenu(c: LayoutMenuContribution): void;
+    /** Remove a Layout menu section this extension registered (by id). Another
+     *  extension's id is refused with a warning. Needs Safelight 3.2.6. */
+    unregisterLayoutMenu(id: string): void;
     /** Declare a settings dialogue (⚙ in the Extensions panel). */
     registerSettings(c: SettingsContribution): void;
     /** Register a post-export image processor. Processors run in registration
@@ -1525,6 +1880,11 @@ export interface SafelightAPI {
     registerCursor(c: CursorContribution): void;
     /** Add a sort order to the Library toolbar's sort dropdown. */
     registerLibrarySort(c: LibrarySortContribution): void;
+    /** Draw a badge in the corner of every Library grid and Filmstrip thumbnail
+     *  (see ThumbnailBadgeContribution). Re-registering the same id replaces it. */
+    registerThumbnailBadge(c: ThumbnailBadgeContribution): void;
+    /** Remove a thumbnail badge this extension registered (by id). */
+    unregisterThumbnailBadge(id: string): void;
     /** Append an action to the Library grid's right-click context menu. Core
      *  passes the targeted photo ids (the right-clicked photo, or the whole
      *  selection if it's part of one). Re-registering the same id replaces it. */
@@ -1625,6 +1985,19 @@ export interface SafelightAPI {
         /** The small "Auto" button of the develop panels (Auto Tone, Auto White
          *  Balance). */
         AutoButton: typeof AutoButton;
+        /** The small marker core draws on thumbnails (edited, the file type), for a badge
+         *  registered with registerThumbnailBadge. `title` is its tooltip. */
+        ThumbnailBadge: typeof ThumbnailBadge;
+        /** The shortcut of one action, as Preferences ▸ Shortcuts shows it: click,
+         *  then press the new keys; Esc or a click elsewhere cancels, ↺ puts back
+         *  the default. For an action you registered with registerKeybinding (or a
+         *  built-in one). Needs Safelight 3.2.6. */
+        ShortcutField: typeof ShortcutField;
+        /** The extensions a saved layout switches, as Preferences ▸ Interface
+         *  shows them under its Extensions button: whether picking the layout
+         *  switches extensions, and a tick for each. The person sets them here;
+         *  api.layouts.saved.save never does. Needs Safelight 3.2.6. */
+        LayoutExtensionsEditor: typeof LayoutExtensionsEditor;
     };
     /** Shared, theme-styled UI primitives handed to extensions — Button, Select,
      *  NumberInput, TextInput, TextArea, Toggle, SegmentedControl, Field, Section,
@@ -1665,7 +2038,7 @@ export interface SafelightAPI {
         usePresetsStore: typeof usePresetsStore;
         useKeybindings: typeof useKeybindings;
         useThemeStore: AppStore<ActiveIdState>;
-        useLayoutStore: AppStore<ActiveIdState>;
+        useLayoutStore: AppStore<LayoutState>;
         usePipelineStore: AppStore<ActiveIdState>;
         /** The open project: its name, folder tree and the project picker. */
         useProjectStore: AppStore<ProjectState>;
@@ -1714,8 +2087,40 @@ export interface SafelightAPI {
     themes: {
         apply(id: string): void;
     };
+    /** The dock's layouts. `apply` picks a registered layout, a saved one
+     *  ("user.…") or "custom", switching a saved layout's extensions when it
+     *  does. The rest needs Safelight 3.2.6 and acts on the calling window's own
+     *  module: a popped-out module keeps its own arrangement. */
     layouts: {
         apply(id: string): void;
+        /** A module's arrangement, as a layout holds it: the current module's
+         *  (the default) as the dock shows it, another's as this window would load
+         *  it. Null before the dock has a module, and for a module that isn't
+         *  registered. */
+        capture(module?: ModuleId): ModuleLayoutDef | null;
+        /** Whether the current module shows `def`, as loading it would show it
+         *  (replaced panels swapped), to a pixel either way. */
+        shows(def: ModuleLayoutDef): boolean;
+        /** Show `def` in the current module. Under a saved layout it becomes that
+         *  layout's arrangement for the module and the layout stays picked; under
+         *  Custom or a registered layout it is shown as Custom's, as a dock edit
+         *  would be. */
+        show(def: ModuleLayoutDef): void;
+        /** The person's saved layouts, which the Layout menu lists. */
+        saved: {
+            list(): SavedLayout[];
+            /** React hook: list(), drawing again when they change (in any window). */
+            use(): SavedLayout[];
+            /** Create one (no `id`), or replace the name and arrangements of one,
+             *  keeping its extension ticks. Returns its id; throws for an id that
+             *  isn't a saved layout's. One that is showing shows the change. */
+            save(input: SavedLayoutInput): string;
+            /** Delete one. When it is showing, Custom is picked. */
+            remove(id: string): void;
+            /** Calls `listener` whenever they change, in this window or another;
+             *  returns the unsubscribe. Dropped when the extension stops. */
+            onChange(listener: () => void): () => void;
+        };
     };
     /** Display transforms. `apply` sets the Preferences default, which photos
      *  without their own pick follow; `effectiveId` is the transform a photo's
@@ -1858,6 +2263,25 @@ export interface SafelightAPI {
          *  the frame is drawn from that preview, as captureFrame's is. Needs
          *  Safelight 3.1.0; on older builds it is undefined. */
         captureFloatFrame(params: DevelopParams, options?: LiveFloatCaptureOptions): Promise<FloatFrame | null>;
+        /** A patch of the live frame at the frame's own pixels: the view's whole
+         *  frame at fit (at most the Develop render resolution, the pixels Develop's
+         *  zoom counts), over the region the view shows, whatever the view is zoomed
+         *  to. What a magnifier shows at true pixel
+         *  scale: drawn at useDevelopOverlay `zoomScale` device pixels a frame pixel,
+         *  it is at Develop's 100 %. `x` and `y` are the patch's centre, 0 to 1 across the
+         *  frame (useDevelopOverlay `imageRect`), and `width` × `height` its size in
+         *  the frame's pixels, rounded and held to 1 to 1024. The patch is drawn as
+         *  the canvas shows it: the photo's params and bag as they are now, with the
+         *  view's overlays (clipping warning, mask tint) and in the screen's space.
+         *  Only the patch is drawn, away from the canvas, so the live view is left
+         *  as it was and a small patch is cheap: ask again as the pointer moves,
+         *  one at a time. `rect` says where the bitmap sits in the frame: near an
+         *  edge only the part inside the frame is drawn. `colorSpace` is the
+         *  canvas's: open your 2D context with it, or wide colour clips. Null with no photo open,
+         *  between photos, without float render targets, or for a patch wholly
+         *  outside the frame. Needs Safelight 3.2.7; on older builds it is
+         *  undefined. */
+        captureRegion(request: RegionRequest): Promise<RegionCapture | null>;
         /** Render an arbitrary catalogue photo by id through the full develop pipeline
          *  with `params` (and optionally that photo's extension-stage `paramBag`) to
          *  an off-screen ImageBitmap, or null if it can't render. Unlike captureFrame
@@ -1866,7 +2290,9 @@ export interface SafelightAPI {
          *  across a Library selection. Rendered small (for histogram measurement).
          *  A `paramBag` is drawn as the live view draws one: under the entries the
          *  built-in stages take from `params`, such as the Detail panel's noise
-         *  reduction. The frame is a JPEG at quality 0.9, which suits a picture. `lossless: true`
+         *  reduction. Without one the photo is drawn with its params alone (since
+         *  3.2.7; earlier builds drew whatever stage values the renderer held,
+         *  another photo's). The frame is a JPEG at quality 0.9, which suits a picture. `lossless: true`
          *  returns it from a PNG instead, so every 8-bit channel value the pipeline
          *  wrote reaches the bitmap exactly: use it for a frame that carries data,
          *  such as a stage's measurement encoding, which a JPEG would smear across
@@ -2006,6 +2432,36 @@ export interface SafelightAPI {
         /** React hook: brushTips(), re-rendering as tips come and go. Needs
          *  Safelight 3.2.5. */
         useBrushTips(): readonly BrushTipContribution[];
+        /** The official brush every painting tool shares: Masking's. A tool holds
+         *  its own settings and starts them from `defaults` (size is a radius as a
+         *  share of the photo's height, as a BrushDab's; feather, opacity and flow
+         *  run 0 to 1). `actions` are the rebindable brush shortcuts' keybinding
+         *  ids ([ and ] size, Shift+[ and Shift+] feather, comma and period
+         *  opacity, Shift+comma and Shift+period flow), which core hands only to the
+         *  held canvas tool: answer CanvasTool.onAction and wants with `step`,
+         *  passing the settings the tool has. It returns the setting a shortcut
+         *  changes and its new value, held to its range, or null for one the tool
+         *  doesn't have, which core then leaves alone. Needs Safelight 3.2.7. */
+        brush: {
+            defaults: Readonly<BrushSettings>;
+            actions: readonly string[];
+            step: typeof stepBrush;
+        };
+        /** The official brush ring, for a canvas tool's overlay: the brush's edge
+         *  and its feathered core at `at` (overlay layout px, from framePoint; or
+         *  "centre", the reference a size slider shows while dragged), sized as a
+         *  dab paints in the photo through any crop, zoom or Perspective; red and
+         *  dashed for an erasing brush. It draws around the crosshair cursor, as
+         *  Masking's brush does. Needs Safelight 3.2.7. */
+        BrushCursor: typeof BrushCursor;
+        /** The pointer in `el`'s layout px: the space an overlay's `rect`, the
+         *  mapping helpers and CSS left/top use. Interface scale zooms the page,
+         *  so clientX minus the element's left is off by the zoom. Needs Safelight
+         *  3.2.7. */
+        framePoint(el: Element, clientX: number, clientY: number): {
+            x: number;
+            y: number;
+        };
         /** Turn non-RAW photos (JPEG, PNG, WebP, AVIF, TIFF, NetPBM) into linear
          *  Rec.709 yourself. Each load of such a photo asks `resolver` for a
          *  transform and hands it the original's bytes; core reads the file's
@@ -2037,9 +2493,11 @@ export interface SafelightAPI {
          *  without one; one runs at a time, and a second call while one runs does
          *  nothing. */
         autoAdjust: AutoAdjust;
-        /** Read the opaque blob previously stored for the current Develop photo
-         *  under `key`, or null if none exists (or no photo/project is open). */
-        getPhotoData(key: string): Promise<Uint8Array | null>;
+        /** Read the opaque blob previously stored for the current Develop photo,
+         *  or for photo `photoId` (since 3.2.7: a per-photo stage texture made for
+         *  another photo's thumbnail or export), under `key`, or null if none
+         *  exists (or no photo/project is open). */
+        getPhotoData(key: string, photoId?: string): Promise<Uint8Array | null>;
         /** Core develop scalars that live INSIDE a structured param object (e.g.
          *  "vignette.amount", "grain.size") — the ones a top-level setParam can't
          *  reach without merging the owning object. `list()` gives each one's range
@@ -2205,6 +2663,15 @@ export interface SafelightAPI {
             ids: string[];
             cover: string;
         } | null;
+        /** When photo `id`'s edit last changed (ms since the epoch): the time of the
+         *  step its history stands on. Undefined for a photo never edited, or with
+         *  every step undone. Read from the history, so it follows undo and other
+         *  windows' edits. A grid filter or sort that calls it sets `readsEdits`.
+         *  Needs Safelight 3.2.6. */
+        editedAt(id: string): number | undefined;
+        /** editedAt as a React hook, for a thumbnail badge or a panel: draws again
+         *  when this photo's edit time changes. Needs Safelight 3.2.6. */
+        useEditedAt(id: string): number | undefined;
         /** The name a photo is shown by: its filename, with a virtual copy's
          *  name added ("IMG_0001_copy.NEF"). */
         photoDisplayName: typeof photoDisplayName;
@@ -2319,6 +2786,29 @@ export interface SafelightAPI {
             removed: number;
             kept: number;
         }>;
+        /** Offer a decoder for formats Safelight already imports: HEIC, a RAW
+         *  format, JPEG and so on (a file extension Safelight doesn't import is
+         *  left out, with a warning). It joins the end of each format's list in
+         *  Preferences ▸ File formats, after Safelight's own decoder, and is tried
+         *  in the order the person sets there: a decoder that answers null, throws,
+         *  answers an image core can't use or runs past its time limit (60 s and
+         *  2 s a megabyte) passes the file to the next. Decodes run one at a time
+         *  per decoder (one past its time limit is abandoned, its signal aborted),
+         *  so decode in a Worker of your own to keep the window responsive. A
+         *  decoder for only some of a format's files gives `accepts` (3.2.7): a
+         *  file it declines skips its queue and keeps the keys and marks it would
+         *  have without it. Throw an error with `transient: true` for a failure
+         *  that may pass (3.2.7). Develop, exports, headless renders and grid previews use
+         *  the order; a RAW's camera preview and its metadata stay Safelight's.
+         *  See ImageDecoderContribution and DecodedImageResult for what an answer
+         *  must hold. Registering an id you hold replaces it. Dropped when the
+         *  extension stops. Needs Safelight 3.2.6. */
+        registerDecoder(decoder: ImageDecoderContribution): void;
+        /** Take back a decoder you registered. Needs Safelight 3.2.6. */
+        unregisterDecoder(id: string): void;
+        /** React hook: every decoder, Safelight's then extensions', with the
+         *  formats each reads. Needs Safelight 3.2.6. */
+        useDecoders(): readonly ImageDecoderInfo[];
     };
     /** Reach a server whose address the person typed in (the manifest declares
      *  `permissions.userOrigins`; Safelight 3.2.4), reach the origins the
@@ -2489,6 +2979,10 @@ export interface ExtensionSearchResult {
     /** "owner/repo" extensions it pairs well with, linked both ways by the
      *  registry build. */
     worksWith?: string[];
+    /** Present when the registry lists the extension as discontinued. The store
+     *  keeps it off Browse, lists it last in searches, and offers its replacement
+     *  where it is installed. */
+    deprecated?: ExtensionDeprecation;
     /** Owner avatar on the direct avatars CDN — the instant fallback thumbnail and
      *  the card's first paint (no github.com/owner.png redirect). */
     avatarUrl?: string | null;
@@ -2497,7 +2991,28 @@ export interface ExtensionSearchResult {
      *  the card can letterbox it instead of filling the frame. Present when served
      *  from a warm cache; the grid refreshes it via github.thumbnails on open. */
     thumbnail?: ExtensionThumbnail | null;
+    /** The versions the registry build read for it. Absent on live-search
+     *  results and older indexes; null when the registry row has none. */
+    versions?: RegistryVersions | null;
 }
+
+/** One version the registry build read: a release, or the default branch's
+ *  safelight.json when the extension publishes no releases. */
+export interface RegistryVersion {
+    version: string;
+    from: "release" | "branch";
+    tag?: string;
+    minAppVersion?: string;
+}
+
+/** An extension's latest version (and a newer pre-release), or why the
+ *  registry build couldn't read its releases. */
+export type RegistryVersions = {
+    latest: RegistryVersion;
+    prerelease?: RegistryVersion;
+} | {
+    releaseError: string;
+};
 
 /** A resolved browse-card thumbnail. `custom` distinguishes a purpose-made
  *  icon/social-preview (fills the card) from the avatar fallback (letterboxed). */
@@ -2612,6 +3127,21 @@ export interface ExtensionManifest {
      *  extension, for its help, completion and verbs. One the extension doesn't
      *  register when it runs fails with a message. Needs Safelight 3.2.6. */
     commands?: ManifestCommand[];
+    /** Ids of the extensions this one replaces. While it is installed and on,
+     *  Safelight turns each of them off once, if installed and on, and says so;
+     *  they stay installed, and one the person turns back on stays on. At most
+     *  16. Ids under `core` or `safelight` are ignored unless this is an official
+     *  extension. Needs Safelight 3.2.6. */
+    supersedes?: string[];
+}
+
+/** An extension the registry lists as discontinued: its manifest's
+ *  `deprecated` field, as the registry build last read it. */
+export interface ExtensionDeprecation {
+    /** "owner/repo" of the extension that replaces it, or null when it names none. */
+    replacedBy: string | null;
+    /** The author's word to the person, at most 140 characters, or null. */
+    message: string | null;
 }
 
 /** A console command as a manifest declares it (see CommandContribution). */
@@ -2903,6 +3433,8 @@ export type LabelFilter = "any" | ColorLabel;
 
 export type RatingOp = "lt" | "lte" | "gt" | "gte" | "eq" | "neq";
 
+export type EditedFilter = "any" | "edited" | "unedited";
+
 export interface LibraryFilter {
     /** Stars threshold, compared via ratingOp. */
     rating: number;
@@ -2911,6 +3443,9 @@ export interface LibraryFilter {
     label: LabelFilter;
     /** A photo must carry all of these. */
     keywords: string[];
+    /** Only photos with an edit, or only those without (never edited, or every
+     *  step undone). */
+    edited: EditedFilter;
 }
 
 export interface UIState {
@@ -3019,9 +3554,18 @@ export interface AppSettings {
     defaultSortDirection: SortDirection;
     confirmRemovePhotos: boolean;
     showSubfolderPhotos: boolean;
+    /** Show each photo's file type (NEF, JPG) on its grid and Filmstrip thumbnail. */
+    thumbnailFileType: boolean;
+    /** Mark the grid and Filmstrip thumbnails of photos with an edit. */
+    thumbnailEdited: boolean;
     previewSource: PreviewSource;
     thumbMaxEdge: 320 | 640 | 960;
     persistPreviews: boolean;
+    /** Each format's decoders in the order they're tried, by format id ("jpeg",
+     *  "heif", a RAW format's extension such as "nef"): Preferences ▸ File
+     *  formats. A format left out tries Safelight's own decoder first. Since
+     *  3.2.6. */
+    decoderOrder: Record<string, string[]>;
     /** Where a project's .safelight working folder lives: beside the photos, or
      *  under externalCatalogDir. */
     catalogLocation: "in-folder" | "external";
@@ -3060,6 +3604,7 @@ export interface AppSettings {
     autoUpdateExtensions: boolean;
     onlyVerifiedExtensions: boolean;
     extensionsMaximized: boolean;
+    preferencesMaximized: boolean;
     checkForUpdates: boolean;
     updateChannel: UpdateChannel;
 }
@@ -3130,6 +3675,14 @@ export interface ProjectState {
 /** The id of the active theme, layout or display transform. */
 export interface ActiveIdState {
     activeId: string;
+}
+
+/** The active layout. */
+export interface LayoutState extends ActiveIdState {
+    /** While Custom is picked because the dock was edited under another layout,
+     *  that layout's id ("RAW" edited reads as Custom, edited from "RAW");
+     *  otherwise undefined. Needs Safelight 3.2.6. */
+    editedFrom?: string;
 }
 
 // src/extensions/api/native-bridge.ts
@@ -3994,7 +4547,7 @@ export interface LibrarySourceItem {
      *  photo is turned upright by it. Fields of another type than ExifData's are
      *  left out, and so are the ones the RAW decode learns (colorTemperature,
      *  asShotMultipliers, rawExposureBias, baselineExposure, baselineShadows,
-     *  cameraMatchVersion). */
+     *  cameraMatchVersion, cameraMatchDecoders). */
     exif?: ExifData;
     /** 0 to 5 stars, as the photo arrives in the catalogue. */
     rating?: number;
@@ -4661,7 +5214,8 @@ export interface CurveEditorProps {
     curves: ToneCurves;
     onChange: (channel: ToneCurveChannel, points: CurvePoint[]) => void;
     onCommit: () => void;
-    /** Compact mode for embedding inside another panel (mask sub-panels). */
+    /** Accepted for editors embedded in another panel (mask sub-panels). The
+     *  gesture help is a tooltip, so the editor renders the same either way. */
     compact?: boolean;
     /** Show the selected point's In/Out row even without keyboard canvas editing. */
     showPointValues?: boolean;
@@ -5019,6 +5573,33 @@ export interface AutoButtonProps {
 
 declare function AutoButton({ onClick, disabled, title }: AutoButtonProps): import("react").JSX.Element;
 
+// src/ui/components/ThumbnailBadge.ts
+
+export interface ThumbnailBadgeProps2 {
+    children: ReactNode;
+    /** The tooltip, and the name a screen reader gives the badge. */
+    title?: string;
+}
+
+/** A small marker on a thumbnail, with the look of the flag and keyword badges:
+ *  edited, the file type, or a badge an extension registers (api.registerThumbnailBadge). */
+declare function ThumbnailBadge({ children, title }: ThumbnailBadgeProps2): import("react").JSX.Element;
+
+// src/ui/components/ShortcutField.ts
+
+export interface ShortcutFieldProps {
+    /** A built-in action's id, or one an extension registered. */
+    actionId: string;
+}
+
+declare function ShortcutField({ actionId }: ShortcutFieldProps): import("react").JSX.Element;
+
+// src/ui/components/LayoutExtensionsEditor.ts
+
+declare function LayoutExtensionsEditor({ layoutId }: {
+    layoutId: string;
+}): import("react").JSX.Element | null;
+
 // src/ui/components/ConfirmDialog.ts
 
 export interface ConfirmDialogOptions {
@@ -5148,6 +5729,10 @@ export interface RegisteredLibrarySort extends LibrarySortContribution {
     extensionId: string;
 }
 
+export interface RegisteredThumbnailBadge extends ThumbnailBadgeContribution {
+    extensionId: string;
+}
+
 export interface RegisteredStylesheet extends StylesheetContribution {
     extensionId: string;
 }
@@ -5161,6 +5746,10 @@ export interface RegisteredTopBarButton extends TopBarButtonContribution {
 }
 
 export interface RegisteredWindow extends WindowContribution {
+    extensionId: string;
+}
+
+export interface RegisteredLayoutMenu extends LayoutMenuContribution {
     extensionId: string;
 }
 
@@ -5194,6 +5783,8 @@ export interface RegistryState {
     panelHeaderAccessories: Record<string, RegisteredPanelHeaderAccessory>;
     /** Keyed by contribution id. Extra Library sort orders. */
     librarySorts: Record<string, RegisteredLibrarySort>;
+    /** Keyed by contribution id. Badges drawn on grid and Filmstrip thumbnails. */
+    thumbnailBadges: Record<string, RegisteredThumbnailBadge>;
     /** Keyed by contribution id, in registration order. CSS applied to every
      *  window after the core styles. */
     stylesheets: Record<string, RegisteredStylesheet>;
@@ -5207,6 +5798,9 @@ export interface RegistryState {
     /** Keyed by contribution id. Window-style pop-ups (api.registerWindow).
      *  Needs Safelight 3.2.6. */
     windows: Record<string, RegisteredWindow>;
+    /** Keyed by contribution id. Sections in the Layout menu
+     *  (api.registerLayoutMenu). Needs Safelight 3.2.6. */
+    layoutMenus: Record<string, RegisteredLayoutMenu>;
 }
 
 /** A stage uniform another extension contributed, as api.params lists it. */
@@ -5301,6 +5895,12 @@ export interface DevelopOverlayState {
     region: CropRect | null;
     /** The decoded image's width over its height. Needs Safelight 3.2.0. */
     imageAspect: number;
+    /** The device pixels a pixel of the view's whole frame (the pixels
+     *  captureRegion draws in) spans at Develop's 100 %. 1, except with Dynamic
+     *  render resolution on a RAW whose decoded size is larger than the source
+     *  Develop holds, where zoom is measured in the photo's own pixels: the
+     *  decoded width over the source's. Needs Safelight 3.2.7. */
+    zoomScale: number;
 }
 
 // src/extensions/api/develop.ts
@@ -5457,6 +6057,37 @@ export interface InputProfileResolver {
     resolve(photo: InputProfilePhoto, file: Blob): Promise<InputTransform | null>;
 }
 
+// src/rendering/region-capture.ts
+
+/** A patch asked for: its centre, 0 to 1 across the frame the view shows (x
+ *  right, y down), and its size in the frame's pixels. */
+export interface RegionRequest {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+/** A rectangle in the frame's pixels, from its top-left corner. */
+export interface RegionRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+/** A patch of the live frame (api.develop.captureRegion): `bitmap` holds the
+ *  part of the patch inside the frame, `rect` in the frame's pixels, of a frame
+ *  `frameWidth` × `frameHeight`, encoded for `colorSpace` as the canvas is: draw
+ *  it into a 2D context opened with that colour space, or wide colour clips. */
+export interface RegionCapture {
+    bitmap: ImageBitmap;
+    rect: RegionRect;
+    frameWidth: number;
+    frameHeight: number;
+    colorSpace: PredefinedColorSpace;
+}
+
 // src/rendering/source-sample.ts
 
 export interface SourceSample {
@@ -5502,111 +6133,48 @@ export interface SourcePixels {
     height: number;
 }
 
+// src/modules/develop/brush.ts
+
+export interface BrushSettings {
+    size: number;
+    feather: number;
+    opacity: number;
+    flow: number;
+}
+
+export type BrushSetting = keyof BrushSettings;
+
+/** The setting a brush shortcut changes and its value after the step, held to
+ *  its range; null for an action that isn't a brush shortcut, or one for a
+ *  setting `brush` doesn't have, so a tool without flow leaves the flow keys
+ *  alone. A canvas tool answers onAction and wants with it. */
+declare function stepBrush(action: string, brush: Partial<BrushSettings>): {
+    key: BrushSetting;
+    value: number;
+} | null;
+
+// src/modules/develop/BrushCursor.ts
+
+export interface BrushCursorProps {
+    /** The pointer in the overlay's layout px (api.develop.framePoint), or
+     *  "centre" for the reference ring a size slider shows; null draws nothing. */
+    at: {
+        x: number;
+        y: number;
+    } | "centre" | null;
+    /** The brush's radius, a share of the photo's height. */
+    size: number;
+    /** 0 to 1: how much of the radius fades. */
+    feather: number;
+    /** An erasing (subtracting) brush, drawn red and dashed. */
+    erase?: boolean;
+}
+
+declare function BrushCursor({ at, size, feather, erase }: BrushCursorProps): import("react").JSX.Element | null;
+
 // src/catalog/normalize.ts
 
 declare function normalizeParams(p: Partial<DevelopParams> | undefined): DevelopParams;
-
-// src/extensions/api/library.ts
-
-export type RenamePhotoResult = {
-    ok: true;
-    filename: string;
-} | {
-    ok: false;
-    reason: string;
-};
-
-/** The Library's photo right-click menu, for a surface that lists photos. */
-export interface PhotoActions {
-    /** Right-click handler for a photo cell. Right-clicking a photo that's part
-     *  of the current selection targets the whole selection; right-clicking an
-     *  unselected one selects just it first. */
-    onContextMenu: (id: string, e: MouseEvent) => void;
-    /** The menu and its dialogues. Render them inside the surface. */
-    overlays: ReactNode;
-}
-
-export interface CullingShortcutOptions {
-    /** Handle the thumbnail-size actions (- / =), which step the Library grid's
-     *  cell size. Surfaces whose cells are sized by their container (a filmstrip
-     *  follows its rail) pass false and leave the keys alone. Default true. */
-    sizeSteps?: boolean;
-}
-
-/** One line of a preset's summary. */
-export interface PresetDiff {
-    label: string;
-    value: string;
-}
-
-/** One selectable adjustment in the Save Preset dialogue. `keys` are the
- *  DevelopParams keys copied when the field is checked; `changed` marks fields
- *  that differ from the defaults (pre-checked by default). */
-export interface PresetField {
-    id: string;
-    label: string;
-    keys: (keyof DevelopParams)[];
-    changed: boolean;
-    /** Short current value, shown beside scalar fields. */
-    value?: string;
-    /** Qualified paramBag keys copied when checked (extension-stage fields and
-     *  the Display transform field; core fields copy `keys` instead). */
-    bagKeys?: string[];
-    /** The Display transform field's defaults for `bagKeys`, copied in place of
-     *  a key the bag holds no value for. */
-    bagDefaults?: Record<string, unknown>;
-    /** "global" (default) is offered and pre-checked when changed; "per-image" is
-     *  hidden under "Show all" and never pre-selected — spatial edits (crop,
-     *  retouch, warp …) that don't transfer meaningfully to another photo. */
-    scope?: "global" | "per-image";
-    /** Set on extension-contributed stage fields (drives the "per-image" tag). */
-    extension?: boolean;
-}
-
-export interface ImportedPreset {
-    name: string;
-    group?: string;
-    params: Partial<DevelopParams>;
-    paramBag?: Record<string, unknown>;
-}
-
-export type PresetImportOutcome = {
-    status: "imported";
-    preset: ImportedPreset;
-}
-/** No installed importer claims this file type. */
- | {
-    status: "no-importer";
-    extension: string;
-}
-/** An importer claimed the file but found no develop settings in it. */
- | {
-    status: "no-settings";
-}
-/** An importer claimed the file but threw or ran out of time reading it. */
- | {
-    status: "failed";
-    reason: string;
-}
-/** A .json file that isn't a Safelight preset this build can read. */
- | {
-    status: "unreadable";
-};
-
-/** A folder an extension keeps across launches (`api.project.pickKeptDirectory`),
- *  opened again by its token: the folder, or why it can't be written into now.
- *  "gone": no folder at that path, or its drive or share isn't connected.
- *  "unwritable": the folder is there but may not be written into; on Windows
- *  only a folder that can't even be looked at shows here, and one whose
- *  permissions refuse writes is reported by its first write instead. "unknown": the token
- *  names no folder kept for this extension (forgotten, the extension
- *  uninstalled since, or, in the browser build, picked before the page was
- *  loaded). */
-export type KeptDirectory = {
-    folder: FileSystemDirectoryHandle;
-} | {
-    problem: "gone" | "unwritable" | "unknown";
-};
 
 // src/rendering/histogram.ts
 
@@ -6014,6 +6582,10 @@ export interface ExtensionDescriptors {
         owns?: string[];
     }[];
     hasCatalogHooks: boolean;
+    /** The bag keys of uniforms the extension computes for each photo
+     *  (UniformDeclaration.computed), inline and in passes. Absent from files an
+     *  older Safelight wrote. */
+    computed?: string[];
 }
 
 // src/project/folder-node.ts

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { act } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { activate } from "../src/index";
 import { STORE_ID } from "../src/state";
 import { INSTALLED, type Item } from "../src/stack";
@@ -35,6 +36,14 @@ let rig: Rig;
 const enc = (s: string) => new TextEncoder().encode(s);
 const lastPanel = (id: string) => [...rig.panels].reverse().find((p) => p.id === id)!;
 const mount = (c: ComponentType) => render(React.createElement(c));
+const RECT = { x: 0, y: 0, w: 200, h: 100 };
+/** Over the photo while placing: the slot arms the canvas tool, whose overlay takes the presses. */
+function mountPlacing() {
+  mount(rig.slots[0].component);
+  const tool = rig.canvasTool()!;
+  render(React.createElement(tool.overlay, { rect: RECT }));
+  return tool;
+}
 const bag = (id: string) => rig.develop.getState().paramBag[`gmic.f.${id}`] as { on: boolean; data?: { curves?: number[][]; points?: number[][] } };
 
 function box(el: Element, width: number, height: number) {
@@ -103,7 +112,7 @@ describe("Colorize", () => {
     fireEvent.click(screen.getByRole("button", { name: "Place colours on the photo" }));
     expect(screen.queryByLabelText("View Resolution")).toBeNull();
     cleanup();
-    mount(rig.slots[0].component);
+    mountPlacing();
     const layer = await screen.findByTestId("gmic-place-layer");
     box(layer.parentElement!, 200, 100);
     fireEvent.pointerDown(layer, { pointerId: 1, clientX: 50, clientY: 25 });
@@ -120,7 +129,7 @@ describe("Warp", () => {
     mount(lastPanel("gmic.f.w").component);
     fireEvent.click(await screen.findByRole("button", { name: "Add keypoints on the photo" }));
     cleanup();
-    mount(rig.slots[0].component);
+    mountPlacing();
     const layer = await screen.findByTestId("gmic-place-layer");
     box(layer.parentElement!, 200, 100);
     fireEvent.pointerDown(layer, { pointerId: 1, clientX: 100, clientY: 50 });
@@ -129,6 +138,62 @@ describe("Warp", () => {
     expect(bag("w").data!.points).toEqual([[60, 50, 50, 50]]);
     fireEvent.doubleClick(screen.getByRole("slider", { name: "Warp [Interactive]: keypoint 1" }));
     expect(bag("w").data!.points).toEqual([]);
+  });
+});
+
+describe("placing points", () => {
+  const placeButton = () => screen.findByRole("button", { name: "Add keypoints on the photo" });
+
+  it("holds a zoomable canvas tool, with the place cursor, while placing", async () => {
+    start([WARP]);
+    mount(lastPanel("gmic.f.w").component);
+    fireEvent.click(await placeButton());
+    cleanup();
+    const tool = mountPlacing();
+    expect(tool.zoomable).toBe(true);
+    expect((await screen.findByTestId("gmic-place-layer")).style.cursor).toBe("crosshair");
+  });
+
+  it("lets go of placing on Escape through the tool, with no key listener of its own", async () => {
+    const added = vi.spyOn(window, "addEventListener");
+    start([WARP]);
+    mount(lastPanel("gmic.f.w").component);
+    fireEvent.click(await placeButton());
+    expect(added.mock.calls.filter(([type]) => type === "keydown")).toEqual([]);
+    added.mockRestore();
+    mount(rig.slots[0].component);
+    act(() => rig.canvasTool()!.onEscape!());
+    expect(screen.getByRole("button", { name: "Add keypoints on the photo" }).getAttribute("aria-pressed")).toBe("false");
+    expect(rig.canvasTool()).toBeNull();
+  });
+
+  it("Done lets go of the tool", async () => {
+    start([WARP]);
+    mount(lastPanel("gmic.f.w").component);
+    mount(rig.slots[0].component);
+    fireEvent.click(await placeButton());
+    expect(rig.canvasTool()).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(rig.canvasTool()).toBeNull();
+  });
+
+  it("stops placing when another extension takes the canvas", async () => {
+    start([WARP]);
+    mount(lastPanel("gmic.f.w").component);
+    mount(rig.slots[0].component);
+    fireEvent.click(await placeButton());
+    act(() => rig.releaseCanvasTool());
+    expect(screen.getByRole("button", { name: "Add keypoints on the photo" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("draws the handle with the move cursor", async () => {
+    start([WARP]);
+    rig.develop.setState({ paramBag: { "gmic.f.w": { on: true, values: {}, data: { points: [[60, 50, 50, 50]] } } } });
+    mount(lastPanel("gmic.f.w").component);
+    fireEvent.pointerDown(await placeButton());
+    cleanup();
+    mount(rig.slots[0].component);
+    expect((await screen.findByRole("slider", { name: "Warp [Interactive]: keypoint 1" })).style.cursor).toBe("move");
   });
 });
 
